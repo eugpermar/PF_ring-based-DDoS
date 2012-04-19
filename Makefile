@@ -1,10 +1,12 @@
 all:
 	cd kernel; make
+	cd tommyds-1.0; make tommy.o
 	cd pfcount_multichannel; make
 	#cd drivers; make #Uncomment for drivers support
 
 clean:
 	cd kernel; make clean
+	cd tommyds-1.0; make clean
 	cd pfcount_multichannel; make clean
 	#cd drivers; make clean # uncomment for drivers support
 

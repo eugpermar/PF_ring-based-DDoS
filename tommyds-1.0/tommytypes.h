@@ -145,7 +145,7 @@ typedef int tommy_bool_t; /**< Generic boolean type. */
 /**
  * Key type used in indexed data structures to store the key or the hash value.
  */
-typedef tommy_uint32_t tommy_key_t;
+typedef tommy_uint64_t tommy_key_t;
 
 /**
  * Bits into the ::tommy_key_t type.
