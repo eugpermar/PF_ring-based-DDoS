@@ -1,0 +1,36 @@
+DNA is split in two parts:
+    - DNA kernel driver
+    - DNA user-space library
+
+This directory contains the DNA drivers distributed in source format. The user-space
+library is distributed as binary library under PF_RING/userland/lib.
+
+As our work is self-funded, we need some income in order to continue with our research.
+For this reason the library requires a per-MAC address unlock code. On the other hand you
+are free to test it: with no unlock-code the application can work for a few minutes in
+order to allow you to evaluate it.
+
+As usual, we give avay free unlock codes to universities and researchers.
+
+Please go to http://www.ntop.org/pf_ring/dna/ for all details.
+
+-------------
+
+This software is designed and offered as general-purpose software, not for any user's particular purpose.
+You accept that no software is error free and you are strongly advised to back-up your files regularly.
+By purchasing a Usage License for the software, you receive free support for installing and using the
+software, and for fixing of any errors found by you to be part of the purchased software, 
+for a period of one year
+
+Beside the guarantee above, to the maximum extent permitted by applicable law and subject to the guarantee
+above, ntop disclaims all warranties, conditions and other terms, either express or implied (whether
+by statute, common law, collaterally or otherwise) including but not limited to implied warranties of
+satisfactory quality and fitness for particular purpose with respect to the software and the written
+materials that accompany the software.
+
+To the maximum extent permitted by applicable law and except as provided in the ntop guarantee,
+ntop and its suppliers shall not be liable for any damages whatsoever (including without limitation,
+damages for loss of business profits, business interruption, loss of business information or other
+pecuniary loss) arising out of the use or inability to use the software, even if ntop has been 
+advised of the possibility of such damages. In any case the entire liability of ntop under
+any provision of this Agreement shall be limited to the amount actually paid by you for the software.

@@ -1,0 +1,26 @@
+This directory contains two family of drivers:
+
+- PF_RING_aware/
+Standard drivers that have been enhanced with PF_RING native support.
+In order to exploit it, you need to do "insmod pf_ring.ko transparent_mode=1".
+
+These drivers allow you to use the NIC for general purpose networking
+while increasing the packet capture speed. Note that if you do
+"insmod pf_ring.ko transparent_mode=2" the card will divert all incoming
+packets to PF_RING thus you will not be able to use the card for networking
+but only for packet capture. The advantage of this mode, is that with
+respect to "transparent_mode=1" the packet capture speed is increased.
+
+
+- DNA/
+DNA (Direct NIC Access) drivers that allow applications to completely
+bypass the kernel and access the card directly for maximum speed. This
+means that an application sitting on top of the DNA driver can both send
+and receive packets only using the PF_RING API, with no general purpose
+networking (e.g. ping or web surfing) support. DNA drivers are limited
+to selected network adapters. Please check its availability prior to
+use them.
+
+---------------------------------------
+August 2011 - Luca Deri <deri@ntop.org>
+

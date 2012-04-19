@@ -1,0 +1,149 @@
+#
+# Makefile for the PF_RING API example programs
+#
+# Try to make both programs written on top of the
+# PF_RING library and programs originally written
+# on top of PCAP library and linked now to use
+# the version with PF_RING aware functionalities.
+#
+
+
+
+#
+# PF_RING
+#
+PFRINGDIR  = ../lib
+LIBPFRING  = ${PFRINGDIR}/libpfring.a
+
+#
+# DNA Support
+DNA_DEFINE = #-DENABLE_DNA_SUPPORT
+
+#
+# PF_RING aware libpcap
+#
+O_FLAG     = #-O2
+EXTRA_LIBS = 
+PCAPDIR    = ../libpcap-1.1.1-ring
+LIBPCAP    = ${PCAPDIR}/libpcap.a  ${EXTRA_LIBS}
+
+#
+# Search directories
+#
+PFRING_KERNEL=../kernel
+INCLUDE    = -I${PFRING_KERNEL} -I${PFRING_KERNEL}/plugins -I${PFRINGDIR} -I${PCAPDIR}
+
+#
+# C compiler and flags
+#
+#
+# CROSS_COMPILE=arm-mv5sft-linux-gnueabi-
+#
+CC         = ${CROSS_COMPILE}gcc #--platform=native
+CFLAGS     = -g ${O_FLAG} -Wall ${INCLUDE} ${DNA_DEFINE} -D HAVE_ZERO #-O
+# LDFLAGS  =
+
+#
+# User and System libraries
+#
+LIBS       = ${LIBPFRING}  -lpthread  -lnl -L../libpcap -lpcap  
+
+# How to make an object file
+%.o: %.c
+#	@echo "=*= making object $@ =*="
+	${CC} ${CFLAGS} -c $< -o $@
+
+#
+# Main targets
+#
+PFPROGS   = pfcount_multichannel
+
+TARGETS   = ${PFPROGS} 
+
+RCOBJS    = ringc.o interval.o
+RSOBJS    = rings.o interval.o
+RMOBJS    = ringm.o interval.o
+RPOBJS    = pcaps.o interval.o
+
+all: ${TARGETS}
+
+ringc: ${RCOBJS} ${LIBPFRING}
+	${CC} ${RCOBJS} ${LIBS} -o $@
+
+rings: ${RSOBJS} ${LIBPFRING}
+	${CC} ${RSOBJS} ${LIBS} -o $@
+
+ringm: ${RMOBJS} ${LIBPFRING}
+	${CC} ${RMOBJS} ${LIBS} -o $@
+
+pcaps: ${RPOBJS}
+	${CC} ${RPOBJS} ${LIBPCAP} ${LIBS} -o $@
+
+pfcount: pfcount.o ${LIBPFRING}
+	${CC} pfcount.o ${LIBS} -o $@
+
+dummy_plugin_pfcount: dummy_plugin_pfcount.o ${LIBPFRING}
+	${CC} dummy_plugin_pfcount.o ${LIBS} -o $@
+
+pffilter_test: pffilter_test.o ${LIBPFRING}
+	${CC} pffilter_test.o ${LIBS} -o $@
+
+pcap2nspcap: pcap2nspcap.o ${LIBPFRING}
+	${CC} pcap2nspcap.o ${LIBPCAP} ${LIBS} -o $@
+
+pfcount_multichannel: pfcount_multichannel.o ${LIBPFRING}
+	${CC} pfcount_multichannel.o ${LIBS} -o $@
+
+pfcount_82599: pfcount_82599.o ${LIBPFRING}
+	${CC} pfcount_82599.o ${LIBS} -o $@
+
+pfcount_bundle: pfcount_bundle.o ${LIBPFRING}
+	${CC} pfcount_bundle.o ${LIBS} -o $@
+
+pfcount_dummy_plugin: pfcount_dummy_plugin.o ${LIBPFRING}
+	${CC} pfcount_dummy_plugin.o ${LIBS} -o $@
+
+pfcount_aggregator: pfcount_aggregator.o ${LIBPFRING}
+	${CC} pfcount_aggregator.o ${LIBS} -o $@
+
+preflect: preflect.o ${LIBPFRING}
+	${CC} preflect.o ${LIBPCAP} ${LIBS} -o $@
+
+pfbounce: pfbounce.o ${LIBPFRING}
+	${CC} pfbounce.o ${LIBPCAP} ${LIBS} -o $@
+
+pfdnabounce: pfdnabounce.o ${LIBPFRING}
+	${CC} pfdnabounce.o ${LIBPCAP} ${LIBS} -o $@
+
+pfsend: pfsend.o ${LIBPFRING}
+	${CC} pfsend.o ${LIBPCAP} ${LIBS} -o $@
+
+pftwin: pftwin.o ${LIBPFRING}
+	${CC} pftwin.o ${LIBS} -o $@
+
+ptwin: ptwin.o ${LIBPFRING}
+	${CC} ptwin.o ${LIBPCAP} ${LIBS} -o $@
+
+pfmap: pfmap.o ${LIBPFRING}
+	${CC} pfmap.o ${LIBS} -o $@
+
+forwarder: forwarder.o ${LIBPFRING}
+	${CC} forwarder.o ${LIBS} -o $@
+
+pcount: pcount.o ${LIBPCAP} ${LIBPFRING}
+	${CC} pcount.o ${LIBPCAP} ${LIBS} -o $@
+
+alldevs: alldevs.o ${LIBPCAP} ${LIBPFRING}
+	${CC} alldevs.o ${LIBPCAP} ${LIBS} -o $@
+
+pwrite: pwrite.o ${LIBPCAP} ${LIBPFRING}
+	${CC} pwrite.o ${LIBPCAP} ${LIBS} -o $@
+
+vdevice_simulator: vdevice_simulator.o ${LIBPCAP} ${LIBPFRING}
+	${CC} vdevice_simulator.o ${LIBPCAP} ${LIBS} -o $@
+
+pfsystest: pfsystest.o ${LIBPFRING}
+	${CC} pfsystest.o ${LIBS} -o $@
+
+clean:
+	@rm -f ${TARGETS} *.o *~

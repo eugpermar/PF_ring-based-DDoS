@@ -1,0 +1,22 @@
+This directory contains drivers for popular Intel 1 and 10 Gbit drivers.
+These drivers are PF_RING aware meaning that if you insert the pf_ring.ko
+kernel module with transparent_mode equal to 1 or 2, the driver is pushing
+the packets into PF_RING without passing through NAPI. This results in
+much faster operations as you can read from the PF_RING web page.
+
+Luca Deri <deri@ntop.org> - October 2009
+
+-----
+
+e1000 and tg3 PF_RING drivers courtesy of Alexander Didebulidze <didebuli@net.in.tum.de>
+November 2009
+
+-----
+
+Myricom 10G driver courtesy of Todd Carrozzi <carrozzi@gmail.com>
+December 2009
+
+------
+
+Broadcom 10G drivers by Luca Deri
+March 2010
