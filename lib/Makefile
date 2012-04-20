@@ -11,12 +11,12 @@ INSTDIR   = ${DESTDIR}//usr/local
 #
 # Search directories
 #
-INCLUDE   = -I../../kernel -I../../vPF_RING/guest/kernel -I../libpcap
+INCLUDE   = -I../kernel -I../../vPF_RING/guest/kernel -I../libpcap
 
 #
 # Zero ToolKit
 #
-ZERO_OBJS  = pfring_dna_bounce.o pfring_dna_cluster.o pfring_libzero.o 
+ZERO_OBJS  = pfring_dna_bounce.o pfring_mod_dna_cluster.o pfring_dna_cluster.o pfring_libzero.o 
 
 #
 # DNA
@@ -45,7 +45,7 @@ OBJS      = pfring.o pfring_mod.o pfring_utils.o pfring_mod_usring.o pfring_hw_f
 # CROSS_COMPILE=arm-mv5sft-linux-gnueabi-
 #
 CC        = ${CROSS_COMPILE}gcc
-CFLAGS    = -g  -Wall -fPIC ${INCLUDE} -D HAVE_ZERO -D HAVE_DNA -D HAVE_VIRTUAL  -D ENABLE_BPF -D ENABLE_HW_TIMESTAMP  
+CFLAGS    =  -Wall -fPIC ${INCLUDE} -D HAVE_ZERO -D HAVE_DNA -D HAVE_VIRTUAL  -D ENABLE_BPF -D ENABLE_HW_TIMESTAMP   -O2 # -g
 LDFLAGS   = -g -shared
 
 SYSLIBS   = -lpthread  -lnl
@@ -61,7 +61,7 @@ SYSLIBS   = -lpthread  -lnl
 STATICLIB  = libpfring.a
 DYNAMICLIB = libpfring.so
 TARGETS    = ${STATICLIB} ${DYNAMICLIB}
-RING_H     = ../../kernel/linux/pf_ring.h
+RING_H     = ../kernel/linux/pf_ring.h
 
 all: ${TARGETS}
 
