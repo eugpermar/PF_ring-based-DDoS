@@ -28,6 +28,11 @@ PCAPDIR    = ../libpcap-1.1.1-ring
 LIBPCAP    = ${PCAPDIR}/libpcap.a  ${EXTRA_LIBS}
 
 #
+# tommyds object
+#
+TOMMYO = ../tommyds-1.0/tommy.o
+
+#
 # Search directories
 #
 PFRING_KERNEL=../kernel
@@ -46,7 +51,7 @@ CFLAGS     = -g ${O_FLAG} -Wall ${INCLUDE} ${DNA_DEFINE} -D HAVE_ZERO #-O
 #
 # User and System libraries
 #
-LIBS       = ${LIBPFRING}  -lpthread  -lnl -L../libpcap -lpcap  
+LIBS       = ${LIBPFRING}  -lpthread  -lnl -L../libpcap -lpcap
 
 # How to make an object file
 %.o: %.c
@@ -91,8 +96,8 @@ pffilter_test: pffilter_test.o ${LIBPFRING}
 pcap2nspcap: pcap2nspcap.o ${LIBPFRING}
 	${CC} pcap2nspcap.o ${LIBPCAP} ${LIBS} -o $@
 
-pfcount_multichannel: pfcount_multichannel.o ${LIBPFRING}
-	${CC} pfcount_multichannel.o ${LIBS} -o $@
+pfcount_multichannel: pfcount_multichannel.o ${LIBPFRING} ${TOMMYO}
+	${CC} pfcount_multichannel.o ${LIBS} ${TOMMYO} -o $@
 
 pfcount_82599: pfcount_82599.o ${LIBPFRING}
 	${CC} pfcount_82599.o ${LIBS} -o $@
