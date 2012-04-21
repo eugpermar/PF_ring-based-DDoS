@@ -44,13 +44,11 @@
 
 #include "pfring.h"
 
-#include "DDoS.h"
-
 #define ALARM_SLEEP             1
 #define DEFAULT_SNAPLEN       128
 #define MAX_NUM_THREADS        64
 
-int verbose = 1, num_channels = 1;
+int verbose = 0, num_channels = 1;
 pfring_stat pfringStats;
 
 static struct timeval startTime;
@@ -60,6 +58,31 @@ u_int8_t wait_for_packet = 1,  do_shutdown = 0;
 pthread_t pd_thread[MAX_NUM_THREADS];
 
 #define DEFAULT_DEVICE     "eth0"
+
+/**************************************
+ * tommy libs
+ */
+//#define WITH_MACROLIST // TODO Habilitar??
+#include "../tommyds-1.0/tommyhashtbl.h"
+#define RECORD_PER_THREAD 50*1024
+typedef tommy_hashtable map_sIPdIP_counters;
+map_sIPdIP_counters map[MAX_NUM_THREADS];
+struct counters{
+	unsigned long long tcp_counter,udp_counter,icmp_counter,others_counter;
+};
+struct nodo{
+	tommy_node node; // map's interface
+	struct counters counters;
+};
+// TODO reservar solo los necesarios? entonces:
+// struct nodo * counters1[MAX_NUM_THREADS] y malloc en main().
+struct nodo counters1[MAX_NUM_THREADS][RECORD_PER_THREAD];
+int counters1_used[MAX_NUM_THREADS];
+#ifdef  WITH_MACROLIST
+struct nodo counters2[MAX_NUM_THREADS][RECORD_PER_THREAD];
+int counters2_used[MAX_NUM_THREADS];
+#endif
+tommy_hashtable hashtable[MAX_NUM_THREADS];
 
 /* *************************************** */
 /*
@@ -307,12 +330,16 @@ static int32_t thiszone;
 
 void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u_char *user_bytes) {
   long threadId = (long)user_bytes;
+	struct ether_header ehdr;
+   u_short eth_type;
+	 struct ip ip;
+
+	 memcpy(&ehdr, p+h->extended_hdr.parsed_header_len, sizeof(struct ether_header));
+    eth_type = ntohs(ehdr.ether_type); // TODO este código ya venía, pero qué pasa si parsed_header_len==0 y tiene datos basura?
 
   if(verbose) {
-    struct ether_header ehdr;
-    u_short eth_type, vlan_id;
+    u_short vlan_id;
     char buf1[32], buf2[32];
-    struct ip ip;
     int s;
     uint nsec;
 
@@ -327,7 +354,6 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 	   (unsigned)h->ts.tv_usec, nsec);
 
 #if 0
-	int i;
     for(i=0; i<32; i++) printf("%02X ", p[i]);
     printf("\n");
 #endif
@@ -347,9 +373,6 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 	     etheraddr_string(h->extended_hdr.parsed_pkt.smac, buf1),
 	     etheraddr_string(h->extended_hdr.parsed_pkt.dmac, buf2));
     }
-
-    memcpy(&ehdr, p+h->extended_hdr.parsed_header_len, sizeof(struct ether_header));
-    eth_type = ntohs(ehdr.ether_type);
 
     printf("[%s -> %s][eth_type=0x%04X] ",
 	   etheraddr_string(ehdr.ether_shost, buf1),
@@ -395,6 +418,49 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
   }
 
   numPkts[threadId]++, numBytes[threadId] += h->len;
+
+	if(eth_type == 0x0800) { /* IP */
+		memcpy(&ip, p+h->extended_hdr.parsed_header_len+sizeof(ehdr), sizeof(struct ip));
+		// TODO ¿Es necesario pasarlo al formato local? // mejor al exportar, ¿no?
+		const uint64_t hash = ((uint64_t)ip.ip_src.s_addr<<32)+ip.ip_dst.s_addr;
+		const uint8_t proto = ip.ip_p;
+
+		//printf("[%s]", proto2str(ip.ip_p));
+		//printf("[%s -> %s]\n", intoa(ntohl(ip.ip_src.s_addr)),intoa(ntohl(ip.ip_dst.s_addr)));
+		//printf("Size of map: %d\n",tommy_hashtable_count(&map[threadId]));
+
+		// TODO: Comprobar que no nos pasamos al añadir los paquetes?? count puede ser muy lento.
+		// TODO: Cambio de contexto cuando hilo principal procese paquetes.
+		tommy_hashtable_node* i;
+		for (i = tommy_hashtable_bucket(&map[threadId], tommy_inthash_u64(hash));i;i=i->next){
+			/* we first check if the hash matches, as in the same bucket we may have multiples hash values */
+			if (i->key == tommy_inthash_u64(hash)){
+				printf("Hash not grow\n");
+				struct counters * act_counters = &((struct nodo *) i->data)->counters;
+				switch(proto){
+					case 0x06:
+						act_counters->tcp_counter++;
+						return;
+					case 0x11:
+						act_counters->udp_counter++;
+						return;
+					case 0x01:
+						act_counters->icmp_counter++;
+						return;
+					default:
+						act_counters->others_counter++;
+						return;
+				}
+			}
+		}
+
+		// hash not found
+		struct nodo * nodo = &counters1[threadId][counters1_used[threadId]++];
+		nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
+		                            = nodo->counters.udp_counter = 0;
+		tommy_hashtable_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
+		puts("Hash grow");
+	}
 }
 
 /* *************************************** */
@@ -569,6 +635,14 @@ int main(int argc, char* argv[]) {
       pfring_set_poll_duration(ring[i], poll_duration);
 
     pfring_enable_ring(ring[i]);
+
+		tommy_hashtable_init(map+i,RECORD_PER_THREAD);
+		memset(&counters1[i],0,RECORD_PER_THREAD);
+		counters1_used[i]=0;
+#ifdef WITH_MACROLIST
+		memset(&counters2[i],0,RECORD_PER_THREAD);
+		counters2_used[i]=0;
+#endif // WITH_MACROLIST
 
     pthread_create(&pd_thread[i], NULL, packet_consumer_thread, (void*)i);
   }
