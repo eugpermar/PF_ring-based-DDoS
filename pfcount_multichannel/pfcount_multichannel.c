@@ -422,12 +422,19 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 	if(eth_type == 0x0800) { /* IP */
 		memcpy(&ip, p+h->extended_hdr.parsed_header_len+sizeof(ehdr), sizeof(struct ip));
 		// TODO ¿Es necesario pasarlo al formato local? // mejor al exportar, ¿no?
-		const uint64_t hash = ((uint64_t)ip.ip_src.s_addr<<32)+ip.ip_dst.s_addr;
+		const uint64_t hash = ((uint64_t)ntohl(ip.ip_src.s_addr)<<32)+ntohl(ip.ip_dst.s_addr);
 		const uint8_t proto = ip.ip_p;
 
-		//printf("[%s]", proto2str(ip.ip_p));
-		//printf("[%s -> %s]\n", intoa(ntohl(ip.ip_src.s_addr)),intoa(ntohl(ip.ip_dst.s_addr)));
-		//printf("Size of map: %d\n",tommy_hashtable_count(&map[threadId]));
+// 		printf("[%x]", ip.ip_p);
+// 		printf("[%x ", ntohl(ip.ip_src.s_addr));
+// 		printf("-> %x] ", ntohl(ip.ip_dst.s_addr));
+// 		printf("Hash: %lx",hash);
+// 
+// 		printf("[%s]", proto2str(ip.ip_p));
+// 		printf("[%s ", intoa(ntohl(ip.ip_src.s_addr)));
+// 		printf("-> %s] ", intoa(ntohl(ip.ip_dst.s_addr)));
+// 		printf("size of map: %u\n\n",tommy_hashtable_count(&map[threadId]));
+
 
 		// TODO: Comprobar que no nos pasamos al añadir los paquetes?? count puede ser muy lento.
 		// TODO: Cambio de contexto cuando hilo principal procese paquetes.
@@ -435,7 +442,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 		for (i = tommy_hashtable_bucket(&map[threadId], tommy_inthash_u64(hash));i;i=i->next){
 			/* we first check if the hash matches, as in the same bucket we may have multiples hash values */
 			if (i->key == tommy_inthash_u64(hash)){
-				printf("Hash not grow\n");
+// 				printf("Hash not grow\n");
 				struct counters * act_counters = &((struct nodo *) i->data)->counters;
 				switch(proto){
 					case 0x06:
@@ -459,7 +466,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 		nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
 		                            = nodo->counters.udp_counter = 0;
 		tommy_hashtable_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
-		puts("Hash grow");
+// 		puts("Hash grow");
 	}
 }
 
