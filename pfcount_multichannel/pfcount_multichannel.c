@@ -64,7 +64,6 @@ pthread_t pd_thread[MAX_NUM_THREADS];
  */
 //#define WITH_MACROLIST // TODO Habilitar??
 #include "../tommyds-1.0/tommyhashtbl.h"
-#define RECORD_PER_THREAD 50*1024
 typedef tommy_hashtable map_sIPdIP_counters;
 map_sIPdIP_counters map[MAX_NUM_THREADS];
 struct counters{
@@ -74,15 +73,23 @@ struct nodo{
 	tommy_node node; // map's interface
 	struct counters counters;
 };
+struct memory_block{
+	struct nodo * mem;
+	size_t count,size;
+};
+struct memory_block_list{
+	struct memory_block memory_block;
+	struct memory_block_list * next;
+};
 // TODO reservar solo los necesarios? entonces:
 // struct nodo * counters1[MAX_NUM_THREADS] y malloc en main().
-struct nodo counters1[MAX_NUM_THREADS][RECORD_PER_THREAD];
-int counters1_used[MAX_NUM_THREADS];
+struct memory_block_list * counters1[MAX_NUM_THREADS];
 #ifdef  WITH_MACROLIST
-struct nodo counters2[MAX_NUM_THREADS][RECORD_PER_THREAD];
-int counters2_used[MAX_NUM_THREADS];
+struct memory_block_list * counters2[MAX_NUM_THREADS];
 #endif
 tommy_hashtable hashtable[MAX_NUM_THREADS];
+
+#define INITIAL_RECORDS_PER_THREAD 1024
 
 /* *************************************** */
 /*
@@ -429,7 +436,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 // 		printf("[%x ", ntohl(ip.ip_src.s_addr));
 // 		printf("-> %x] ", ntohl(ip.ip_dst.s_addr));
 // 		printf("Hash: %lx",hash);
-// 
+//
 // 		printf("[%s]", proto2str(ip.ip_p));
 // 		printf("[%s ", intoa(ntohl(ip.ip_src.s_addr)));
 // 		printf("-> %s] ", intoa(ntohl(ip.ip_dst.s_addr)));
@@ -462,7 +469,18 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 		}
 
 		// hash not found
-		struct nodo * nodo = &counters1[threadId][counters1_used[threadId]++];
+		if(counters1[threadId]->memory_block.count ==counters1[threadId]->memory_block.size ){
+			//puts("Array is full. Creating a new array.");
+			struct memory_block_list * memory_block_list_node = malloc(sizeof(struct memory_block_list));
+			size_t new_size = counters1[threadId]->memory_block.size*2;
+ 			memory_block_list_node->memory_block.mem = malloc(new_size*sizeof(struct nodo));
+			memory_block_list_node->memory_block.size = new_size;
+			memory_block_list_node->memory_block.count = 0;
+
+			memory_block_list_node->next = counters1[threadId];
+			counters1[threadId] = memory_block_list_node;
+		}
+		struct nodo * nodo = &(counters1[threadId]->memory_block.mem[counters1[threadId]->memory_block.count++]);
 		nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
 		                            = nodo->counters.udp_counter = 0;
 		tommy_hashtable_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
@@ -643,9 +661,12 @@ int main(int argc, char* argv[]) {
 
     pfring_enable_ring(ring[i]);
 
-		tommy_hashtable_init(map+i,RECORD_PER_THREAD);
-		memset(&counters1[i],0,RECORD_PER_THREAD);
-		counters1_used[i]=0;
+		tommy_hashtable_init(map+i,INITIAL_RECORDS_PER_THREAD);
+		counters1[i] = malloc(sizeof(struct memory_block_list));
+		counters1[i]->memory_block.count = 0;
+		counters1[i]->memory_block.mem  = malloc(INITIAL_RECORDS_PER_THREAD*sizeof(struct nodo));
+		counters1[i]->memory_block.size = INITIAL_RECORDS_PER_THREAD;
+		
 #ifdef WITH_MACROLIST
 		memset(&counters2[i],0,RECORD_PER_THREAD);
 		counters2_used[i]=0;
