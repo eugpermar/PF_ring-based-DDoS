@@ -761,7 +761,8 @@ struct create_dna_cluster_info {
   u_int32_t num_slots; /* total number of rx/tx nic/slaves slots */
   u_int32_t num_slaves;
   u_int32_t slave_mem_len; /* per slave shared memory size */
-  u_int64_t dma_addr[0];
+  u_int32_t master_persistent_mem_len;
+  u_int64_t dma_addr[];
 };
 
 struct attach_dna_cluster_info {
@@ -911,6 +912,9 @@ struct dna_cluster {
 
   u_int32_t slave_shared_memory_len; /* per slave len */
   char *shared_memory;
+
+  u_int32_t master_persistent_memory_len;
+  char *master_persistent_memory;
 
   wait_queue_head_t *slave_waitqueue[DNA_CLUSTER_MAX_NUM_SLAVES];
 

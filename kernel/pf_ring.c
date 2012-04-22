@@ -1484,11 +1484,12 @@ static void ring_proc_term(void)
 
 /* ********************************** */
 
-static u_int32_t align_shared_memory_size(u_int32_t min_mem)
+static char *allocate_shared_memory(u_int32_t *mem_len)
 {
-  u_int32_t tot_mem;
+  u_int32_t tot_mem = *mem_len;
+  char *shared_mem;
 
-  tot_mem = PAGE_ALIGN(min_mem);
+  tot_mem = PAGE_ALIGN(tot_mem);
 
   /* Alignment necessary on ARM platforms */
   tot_mem += SHMLBA - (tot_mem % SHMLBA);
@@ -1502,7 +1503,11 @@ static u_int32_t align_shared_memory_size(u_int32_t min_mem)
   tot_mem |= tot_mem >> 16;
   tot_mem++;
 
-  return tot_mem;
+  /* Memory is already zeroed */
+  shared_mem = vmalloc_user(tot_mem);
+
+  *mem_len = tot_mem;
+  return shared_mem;
 }
 
 /*
@@ -1568,10 +1573,10 @@ static int ring_alloc_mem(struct sock *sk)
 
   the_slot_len = pfr->slot_header_len + pfr->bucket_len;
 
-  tot_mem = align_shared_memory_size(sizeof(FlowSlotInfo) + min_num_slots * the_slot_len);
+  tot_mem = sizeof(FlowSlotInfo) + (min_num_slots * the_slot_len);
 
   /* Memory is already zeroed */
-  pfr->ring_memory = vmalloc_user(tot_mem);
+  pfr->ring_memory = allocate_shared_memory(&tot_mem);
 
   if(pfr->ring_memory != NULL) {
     if(unlikely(enable_debug))
@@ -4765,37 +4770,15 @@ static void free_extra_dma_memory(struct dma_memory_info *dma_memory) {
 
 /* ********************************** */
 
-static char *dna_cluster_allocate_shared_memory(u_int32_t num_slaves, u_int32_t slave_mem_len)
-{
-  char *shared_mem;
-  u_int32_t shared_mem_size;
-
-  if(unlikely(enable_debug))
-    printk("[PF_RING] %s()\n", __FUNCTION__);
-
-  shared_mem_size = align_shared_memory_size(PAGE_ALIGN(slave_mem_len) * num_slaves);
-
-  /* Memory is already zeroed */
-  shared_mem = vmalloc_user(shared_mem_size);
-
-  if(shared_mem != NULL) {
-    if(unlikely(enable_debug))
-      printk("[PF_RING] %s() successfully allocated %u bytes at %p\n",
-             __FUNCTION__, shared_mem_size, shared_mem);
-  } else {
-    printk("[PF_RING] ERROR: not enough memory for DNA cluster\n");
-  }
-
-  return shared_mem;
-}
-
 static struct dna_cluster* dna_cluster_create(u_int32_t dna_cluster_id, u_int32_t num_slots,
-                                              u_int32_t num_slaves, u_int32_t slave_mem_len,
+                                              u_int32_t num_slaves, u_int32_t slave_mem_len, 
+					      u_int32_t master_persistent_mem_len,
                                               struct device *hwdev, u_int32_t slot_len, u_int32_t chunk_len)
 {
   struct list_head *ptr, *tmp_ptr;
   struct dna_cluster *entry;
   struct dna_cluster *dnac = NULL;
+  u_int32_t shared_mem_size;
 
   write_lock(&dna_cluster_lock);
 
@@ -4852,13 +4835,26 @@ static struct dna_cluster* dna_cluster_create(u_int32_t dna_cluster_id, u_int32_
       goto unlock;
     }
 
-    if((dnac->shared_memory = dna_cluster_allocate_shared_memory(num_slaves, slave_mem_len)) == NULL) {
+    dnac->slave_shared_memory_len = PAGE_ALIGN(slave_mem_len);
+    shared_mem_size = dnac->slave_shared_memory_len * num_slaves;
+    if((dnac->shared_memory = allocate_shared_memory(&shared_mem_size)) == NULL) {
+      printk("[PF_RING] %s() ERROR: not enough memory for DNA Cluster shared memory\n", __FUNCTION__);
       free_extra_dma_memory(dnac->extra_dma_memory);
       kfree(dnac);
       dnac = NULL;
       goto unlock;
     }
-    dnac->slave_shared_memory_len = PAGE_ALIGN(slave_mem_len);
+
+    dnac->master_persistent_memory_len = PAGE_ALIGN(master_persistent_mem_len);
+    shared_mem_size = dnac->master_persistent_memory_len;
+    if((dnac->master_persistent_memory = allocate_shared_memory(&shared_mem_size)) == NULL) {
+      printk("[PF_RING] %s() ERROR: not enough memory for DNA Cluster persistent memory\n", __FUNCTION__);
+      vfree(dnac->shared_memory);
+      free_extra_dma_memory(dnac->extra_dma_memory);
+      kfree(dnac);
+      dnac = NULL;
+      goto unlock;
+    }
 
     list_add(&dnac->list, &dna_cluster_list);
 
@@ -4871,13 +4867,12 @@ static struct dna_cluster* dna_cluster_create(u_int32_t dna_cluster_id, u_int32_
 unlock:
   write_unlock(&dna_cluster_lock);
 
-  if(unlikely(enable_debug)) {
-    if(dnac != NULL)
+  if(dnac != NULL) {
+    if(unlikely(enable_debug))
       printk("[PF_RING] %s(%u) DNA cluster found or created [master: %u][slaves: %u]\n",
            __FUNCTION__, dna_cluster_id, atomic_read(&dnac->master), atomic_read(&dnac->slaves));
-    else
-      printk("[PF_RING] %s() error\n", __FUNCTION__);
-  }
+  } else
+    printk("[PF_RING] %s() error\n", __FUNCTION__);
 
   return dnac;
 }
@@ -4903,6 +4898,7 @@ static void dna_cluster_remove(struct dna_cluster *dnac, dna_cluster_client_type
       if(atomic_read(&dnac->master) == 0 && atomic_read(&dnac->slaves) == 0) {
         list_del(ptr);
         free_extra_dma_memory(entry->extra_dma_memory);
+	vfree(entry->master_persistent_memory);
         vfree(entry->shared_memory);
         kfree(entry);
 
@@ -5592,6 +5588,25 @@ static int ring_mmap(struct file *file,
       if((rc = do_memory_mmap(vma, size, pfr->dna_cluster->shared_memory,
 		 (pfr->dna_cluster->slave_shared_memory_len / PAGE_SIZE) * pfr->dna_cluster_slave_id,
 		 VM_LOCKED, 0)) < 0)
+        return(rc);
+
+      break;
+    case 6:
+      /* DNA cluster persistent memory (master) */
+      if(pfr->dna_cluster == NULL || pfr->dna_cluster_type != dna_cluster_master) {
+        if(unlikely(enable_debug))
+	  printk("[PF_RING] %s() failed: operation for DNA cluster master only", __FUNCTION__);
+        return(-EINVAL);
+      }
+
+      if(size > pfr->dna_cluster->master_persistent_memory_len) {
+        if(unlikely(enable_debug))
+          printk("[PF_RING] %s() failed: area too large [%ld > %d]\n",
+	         __FUNCTION__, size, pfr->dna_cluster->master_persistent_memory_len);
+        return(-EINVAL);
+      }
+
+      if((rc = do_memory_mmap(vma, size, pfr->dna_cluster->master_persistent_memory, 0, VM_LOCKED, 0)) < 0)
         return(rc);
 
       break;
@@ -7044,7 +7059,8 @@ static int ring_setsockopt(struct socket *sock,
         return -EINVAL;
 
       pfr->dna_cluster = dna_cluster_create(cdnaci.cluster_id, cdnaci.num_slots, cdnaci.num_slaves,
-                                            cdnaci.slave_mem_len, pfr->dna_device->hwdev,
+                                            cdnaci.slave_mem_len, cdnaci.master_persistent_mem_len,
+					    pfr->dna_device->hwdev,
                                             pfr->dna_device->mem_info.rx.packet_memory_slot_len,
                                             pfr->dna_device->mem_info.rx.packet_memory_chunk_len);
 
