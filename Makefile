@@ -1,7 +1,7 @@
 all:
 	cd kernel; make
 	cd tommyds-1.0; make tommy.o
-	cd lib; make
+	cd lib; ./configure; make
 	cd pfcount_multichannel; make
 	#cd drivers; make #Uncomment for drivers support
 
