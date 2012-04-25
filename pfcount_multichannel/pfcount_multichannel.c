@@ -69,6 +69,7 @@ typedef tommy_hashdyn_node map_sIPdIP_counters_node;
 map_sIPdIP_counters map[MAX_NUM_THREADS];
 struct counters{
 	unsigned long long tcp_counter,udp_counter,icmp_counter,others_counter;
+	unsigned long long tcp_bytes,udp_bytes,icmp_bytes,others_bytes;
 };
 struct nodo{
 	tommy_node node; // map's interface
@@ -85,9 +86,6 @@ struct memory_block_list{
 // TODO reservar solo los necesarios? entonces:
 // struct nodo * counters1[MAX_NUM_THREADS] y malloc en main().
 struct memory_block_list * counters1[MAX_NUM_THREADS];
-#ifdef  WITH_MACROLIST
-struct memory_block_list * counters2[MAX_NUM_THREADS];
-#endif
 
 #define INITIAL_RECORDS_PER_THREAD 1024
 
@@ -454,15 +452,19 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 				switch(proto){
 					case 0x06:
 						act_counters->tcp_counter++;
+						act_counters->tcp_bytes += h->len;
 						return;
 					case 0x11:
 						act_counters->udp_counter++;
+						act_counters->udp_bytes += h->len;
 						return;
 					case 0x01:
 						act_counters->icmp_counter++;
+						act_counters->icmp_bytes += h->len;
 						return;
 					default:
 						act_counters->others_counter++;
+						act_counters->others_bytes += h->len;
 						return;
 				}
 			}
