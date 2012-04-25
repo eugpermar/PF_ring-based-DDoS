@@ -63,8 +63,9 @@ pthread_t pd_thread[MAX_NUM_THREADS];
  * tommy libs
  */
 //#define WITH_MACROLIST // TODO Habilitar??
-#include "../tommyds-1.0/tommyhashtbl.h"
-typedef tommy_hashtable map_sIPdIP_counters;
+#include "../tommyds-1.0/tommyhashdyn.h"
+typedef tommy_hashdyn map_sIPdIP_counters;
+typedef tommy_hashdyn_node map_sIPdIP_counters_node;
 map_sIPdIP_counters map[MAX_NUM_THREADS];
 struct counters{
 	unsigned long long tcp_counter,udp_counter,icmp_counter,others_counter;
@@ -87,7 +88,6 @@ struct memory_block_list * counters1[MAX_NUM_THREADS];
 #ifdef  WITH_MACROLIST
 struct memory_block_list * counters2[MAX_NUM_THREADS];
 #endif
-tommy_hashtable hashtable[MAX_NUM_THREADS];
 
 #define INITIAL_RECORDS_PER_THREAD 1024
 
@@ -445,8 +445,8 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 
 		// TODO: Comprobar que no nos pasamos al añadir los paquetes?? count puede ser muy lento.
 		// TODO: Cambio de contexto cuando hilo principal procese paquetes.
-		tommy_hashtable_node* i;
-		for (i = tommy_hashtable_bucket(&map[threadId], tommy_inthash_u64(hash));i;i=i->next){
+		map_sIPdIP_counters_node * i;
+		for (i = tommy_hashdyn_bucket(&map[threadId], tommy_inthash_u64(hash));i;i=i->next){
 			/* we first check if the hash matches, as in the same bucket we may have multiples hash values */
 			if (i->key == tommy_inthash_u64(hash)){
 // 				printf("Hash not grow\n");
@@ -483,7 +483,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 		struct nodo * nodo = &(counters1[threadId]->memory_block.mem[counters1[threadId]->memory_block.count++]);
 		nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
 		                            = nodo->counters.udp_counter = 0;
-		tommy_hashtable_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
+		tommy_hashdyn_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
 // 		puts("Hash grow");
 	}
 }
@@ -661,7 +661,7 @@ int main(int argc, char* argv[]) {
 
     pfring_enable_ring(ring[i]);
 
-		tommy_hashtable_init(map+i,INITIAL_RECORDS_PER_THREAD);
+		tommy_hashdyn_init(map+i);
 		counters1[i] = malloc(sizeof(struct memory_block_list));
 		counters1[i]->memory_block.count = 0;
 		counters1[i]->memory_block.mem  = malloc(INITIAL_RECORDS_PER_THREAD*sizeof(struct nodo));
