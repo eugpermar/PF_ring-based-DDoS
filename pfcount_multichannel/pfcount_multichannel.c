@@ -64,15 +64,19 @@ pthread_t pd_thread[MAX_NUM_THREADS];
  */
 //#define WITH_MACROLIST // TODO Habilitar??
 #include "../tommyds-1.0/tommyhashdyn.h"
+#include "../tommyds-1.0/tommylist.h"
 typedef tommy_hashdyn map_sIPdIP_counters;
 typedef tommy_hashdyn_node map_sIPdIP_counters_node;
+typedef tommy_list counters_list; // tommy does not provide a way to iterate over a map.
 map_sIPdIP_counters map[MAX_NUM_THREADS];
+counters_list counter_list[MAX_NUM_THREADS];
 struct counters{
 	unsigned long long tcp_counter,udp_counter,icmp_counter,others_counter;
 	unsigned long long tcp_bytes,udp_bytes,icmp_bytes,others_bytes;
 };
 struct nodo{
 	tommy_node node; // map's interface
+	tommy_node list_node; // list_interface
 	struct counters counters;
 };
 struct memory_block{
@@ -175,6 +179,7 @@ void print_stats() {
   fprintf(stderr, "Aggregate stats (all channels): [%.1f pkt/sec][%llu pkts dropped]\n", 
 	  (double)(nPktsLast*1000)/(double)delta, pkt_dropped);
   fprintf(stderr, "=========================\n\n");
+	
 }
 
 /* ******************************** */
@@ -486,6 +491,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 		nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
 		                            = nodo->counters.udp_counter = 0;
 		tommy_hashdyn_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
+		tommy_list_insert_tail(&counter_list[threadId],&nodo->list_node,nodo);
 // 		puts("Hash grow");
 	}
 }
@@ -668,11 +674,6 @@ int main(int argc, char* argv[]) {
 		counters1[i]->memory_block.count = 0;
 		counters1[i]->memory_block.mem  = malloc(INITIAL_RECORDS_PER_THREAD*sizeof(struct nodo));
 		counters1[i]->memory_block.size = INITIAL_RECORDS_PER_THREAD;
-		
-#ifdef WITH_MACROLIST
-		memset(&counters2[i],0,RECORD_PER_THREAD);
-		counters2_used[i]=0;
-#endif // WITH_MACROLIST
 
     pthread_create(&pd_thread[i], NULL, packet_consumer_thread, (void*)i);
   }
