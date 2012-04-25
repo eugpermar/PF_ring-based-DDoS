@@ -1144,10 +1144,12 @@ pcap_activate_linux(pcap_t *handle)
 	if (strcmp(device, "any") == 0) {
 		if (handle->opt.promisc) {
 			handle->opt.promisc = 0;
+#ifndef HAVE_PF_RING
 			/* Just a warning. */
 			snprintf(handle->errbuf, PCAP_ERRBUF_SIZE,
 			    "Promiscuous mode not supported on the \"any\" device");
 			status = PCAP_WARNING_PROMISC_NOTSUP;
+#endif
 		}
 	}
 

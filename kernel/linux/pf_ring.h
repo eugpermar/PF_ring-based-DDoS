@@ -124,11 +124,6 @@
 
 /* *********************************** */
 
-struct pkt_aggregation_info {
-  u_int32_t num_pkts, num_bytes;
-  struct timeval first_seen, last_seen;
-};
-
 /*
   Note that as offsets *can* be negative,
   please do not change them to unsigned
@@ -139,10 +134,6 @@ struct pkt_offset {
   int16_t l3_offset;
   int16_t l4_offset;
   int16_t payload_offset;
-};
-
-struct pkt_flow_info {
-  u_int32_t in_iface, out_iface, samplingPopulation, flow_sequence;
 };
 
 #ifndef ETH_ALEN
@@ -170,11 +161,6 @@ typedef union {
 #define host4_peer_b host_peer_b.v4
 #define host6_peer_a host_peer_a.v6
 #define host6_peer_b host_peer_b.v6
-
-typedef union {
-  struct pkt_flow_info flow; /* Flow Information */
-  struct pkt_aggregation_info aggregation; /* Future or plugin use */
-} packet_user_detail;
 
 #define GTP_SIGNALING_PORT         2123
 #define GTP_U_DATA_PORT            2152
@@ -217,9 +203,6 @@ struct pkt_parsing_info {
   u_int16_t last_matched_plugin_id; /* If > 0 identifies a plugin to that matched the packet */
   u_int16_t last_matched_rule_id; /* If > 0 identifies a rule that matched the packet */
   struct pkt_offset offset; /* Offsets of L3/L4/payload elements */
-
-  /* Leave it at the end of the structure */
-  packet_user_detail pkt_detail;
 };
 
 #define UNKNOWN_INTERFACE          -1
@@ -573,12 +556,12 @@ typedef struct flowSlotInfo {
   /* first page, managed by kernel */
   u_int16_t version, sample_rate;
   u_int32_t min_num_slots, slot_len, data_len, tot_mem;
-  u_int32_t insert_off, kernel_remove_off /* managed by kernel */;
+  u_int32_t insert_off, kernel_remove_off;
   u_int64_t tot_pkts, tot_lost, tot_insert;
   u_int64_t tot_fwd_ok, tot_fwd_notok;
   u_int64_t good_pkt_sent, pkt_send_error;
   /* <-- 64 bytes here, should be enough to avoid some L1 VIVT coherence issues (32 ~ 64bytes lines) */
-  char padding[128-64];
+  char padding[128-84];
   /* <-- 128 bytes here, should be enough to avoid false sharing in most L2 (64 ~ 128bytes lines) */
   char k_padding[4096-128];
   /* <-- 4096 bytes here, to get a page aligned block writable by kernel side only */

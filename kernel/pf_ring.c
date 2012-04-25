@@ -662,17 +662,11 @@ inline u_int get_num_ring_free_slots(struct pf_ring_socket * pfr)
   Consume packets that have been read by userland but not
   yet by kernel
 */
-static void consume_pending_pkts(struct pf_ring_socket *pfr)
+static void consume_pending_pkts(struct pf_ring_socket *pfr, u_int8_t synchronized)
 {
-  if((!pfr->tx.enable_tx_with_bounce)
-     || (pfr->header_len != long_pkt_header)
-     || (pfr->slots_info->remove_off == pfr->slots_info->kernel_remove_off)
-     )
-    return;
-
-  write_lock_bh(&pfr->tx.consume_tx_packets_lock);
-
-  while(pfr->slots_info->remove_off != pfr->slots_info->kernel_remove_off) {
+  while(pfr->slots_info->remove_off != pfr->slots_info->kernel_remove_off &&
+        /* one slot back (pfring_mod_send_last_rx_packet is called after pfring_recv has updated remove_off) */
+        (synchronized || pfr->slots_info->remove_off != get_next_slot_offset(pfr, pfr->slots_info->kernel_remove_off))) {
     struct pfring_pkthdr *hdr = (struct pfring_pkthdr*) &pfr->ring_slots[pfr->slots_info->kernel_remove_off];
 
     if(unlikely(enable_debug))
@@ -683,8 +677,9 @@ static void consume_pending_pkts(struct pf_ring_socket *pfr)
 
     if(hdr->extended_hdr.tx.reserved != NULL) {
       /* Can't forward the packet on the same interface it has been received */
-      if(hdr->extended_hdr.tx.bounce_interface == pfr->ring_netdev->dev->ifindex)
+      if(hdr->extended_hdr.tx.bounce_interface == pfr->ring_netdev->dev->ifindex) {
 	hdr->extended_hdr.tx.bounce_interface = UNKNOWN_INTERFACE;
+      }
 
       if(hdr->extended_hdr.tx.bounce_interface != UNKNOWN_INTERFACE) {
 	/* Let's check if the last used device is still the prefered one */
@@ -735,8 +730,6 @@ static void consume_pending_pkts(struct pf_ring_socket *pfr)
 	     pfr->slots_info->kernel_remove_off,
 	     pfr->slots_info->remove_off);
   }
-
-  write_unlock_bh(&pfr->tx.consume_tx_packets_lock);
 }
 
 /* ********************************** */
@@ -1729,15 +1722,12 @@ inline u_int32_t hash_pkt_header(struct pfring_pkthdr * hdr, u_char mask_src, u_
 /* ******************************************************* */
 
 static int parse_raw_pkt(char *data, u_int data_len,
-			 struct pfring_pkthdr *hdr, u_int8_t reset_all)
+			 struct pfring_pkthdr *hdr)
 {
   struct ethhdr *eh = (struct ethhdr *)data;
   u_int16_t displ, ip_len, fragment_offset = 0;
 
-  if(reset_all)
-    memset(&hdr->extended_hdr.parsed_pkt, 0, sizeof(hdr->extended_hdr.parsed_pkt));
-  else
-    memset(&hdr->extended_hdr.parsed_pkt, 0, sizeof(hdr->extended_hdr.parsed_pkt)-sizeof(packet_user_detail) /* Preserve user data */);
+  memset(&hdr->extended_hdr.parsed_pkt, 0, sizeof(hdr->extended_hdr.parsed_pkt));
 
   if(data_len < sizeof(struct ethhdr)) return(0);
 
@@ -1906,10 +1896,9 @@ static int parse_raw_pkt(char *data, u_int data_len,
 static int parse_pkt(struct sk_buff *skb,
 		     u_int8_t real_skb,
 		     u_int16_t skb_displ,
-		     struct pfring_pkthdr *hdr,
-		     u_int8_t reset_all)
+		     struct pfring_pkthdr *hdr)
 {
-  int rc = parse_raw_pkt(&skb->data[real_skb ? -skb_displ : 0], (skb->len + skb_displ), hdr, reset_all);
+  int rc = parse_raw_pkt(&skb->data[real_skb ? -skb_displ : 0], (skb->len + skb_displ), hdr);
   hdr->extended_hdr.parsed_pkt.offset.eth_offset = -skb_displ;
 
   return(rc);
@@ -2432,7 +2421,13 @@ inline int copy_data_to_ring(struct sk_buff *skb,
   if(do_lock) write_lock(&pfr->ring_index_lock);
   // smp_rmb();
 
-  consume_pending_pkts(pfr);
+  if(pfr->tx.enable_tx_with_bounce && pfr->header_len == long_pkt_header
+     && pfr->slots_info->remove_off != pfr->slots_info->kernel_remove_off /* optimization to avoid too many locks */
+     && pfr->slots_info->remove_off != get_next_slot_offset(pfr, pfr->slots_info->kernel_remove_off)) {
+    write_lock(&pfr->tx.consume_tx_packets_lock);
+    consume_pending_pkts(pfr, 0);
+    write_unlock(&pfr->tx.consume_tx_packets_lock);
+  }
 
   off = pfr->slots_info->insert_off;
   pfr->slots_info->tot_pkts++;
@@ -2601,7 +2596,7 @@ static int add_packet_to_ring(struct pf_ring_socket *pfr,
 			      int displ, u_int8_t parse_pkt_first)
 {
   if(parse_pkt_first)
-    parse_pkt(skb, real_skb, displ, hdr, 0 /* Do not reset user-specified fields */);
+    parse_pkt(skb, real_skb, displ, hdr);
 
   ring_read_lock();
   add_pkt_to_ring(skb, real_skb, pfr, hdr, 0, RING_ANY_CHANNEL, displ, NULL, NULL);
@@ -2616,7 +2611,7 @@ static int add_raw_packet_to_ring(struct pf_ring_socket *pfr, struct pfring_pkth
 				  u_int8_t parse_pkt_first)
 {
   if(parse_pkt_first)
-    parse_raw_pkt(data, data_len, hdr, 0 /* Do not reset user-specified fields */);
+    parse_raw_pkt(data, data_len, hdr);
 
   ring_read_lock();
   copy_raw_data_to_ring(pfr, hdr, data, data_len);
@@ -3865,7 +3860,7 @@ static struct sk_buff* defrag_skb(struct sk_buff *skb,
 	  skb = skk;
 	  *defragmented_skb = 1;
 	  hdr->len = hdr->caplen = skb->len + displ;
-	  parse_pkt(skb, 1, displ, hdr, 1);
+	  parse_pkt(skb, 1, displ, hdr);
 	} else {
 	  //printk("[PF_RING] Fragment queued \n");
 	  return(NULL);	/* mask rcvd fragments */
@@ -4012,7 +4007,7 @@ static int skb_ring_handler(struct sk_buff *skb,
     hdr.extended_hdr.parsed_header_len = 0;
 
     if(pfr && pfr->rehash_rss && skb->dev) {
-      parse_pkt(skb, real_skb, displ, &hdr, 1);
+      parse_pkt(skb, real_skb, displ, &hdr);
 
       channel_id = hash_pkt_header(&hdr, 0, 0, 0, 0, 0) % get_num_rx_queues(skb->dev);
     }
@@ -4027,7 +4022,7 @@ static int skb_ring_handler(struct sk_buff *skb,
 					  displ, 0, NULL, NULL, 0, real_skb ? &clone_id : NULL);
     }
   } else {
-    is_ip_pkt = parse_pkt(skb, real_skb, displ, &hdr, 1);
+    is_ip_pkt = parse_pkt(skb, real_skb, displ, &hdr);
 
     if(enable_ip_defrag) {
       if(real_skb
@@ -4048,7 +4043,8 @@ static int skb_ring_handler(struct sk_buff *skb,
     else
       hdr.extended_hdr.if_index = UNKNOWN_INTERFACE;
 
-    hdr.extended_hdr.tx.bounce_interface = UNKNOWN_INTERFACE, hdr.extended_hdr.tx.reserved = NULL;
+    hdr.extended_hdr.tx.bounce_interface = UNKNOWN_INTERFACE;
+    hdr.extended_hdr.tx.reserved = NULL;
     hdr.extended_hdr.rx_direction = recv_packet;
 
     /* [1] Check unclustered sockets */
@@ -5811,7 +5807,11 @@ unsigned int ring_poll(struct file *file,
     pfr->ring_active = 1;
     // smp_rmb();
 
-    consume_pending_pkts(pfr);
+    if(pfr->tx.enable_tx_with_bounce && pfr->header_len == long_pkt_header) {
+      write_lock_bh(&pfr->tx.consume_tx_packets_lock);
+      consume_pending_pkts(pfr, 1);
+      write_unlock_bh(&pfr->tx.consume_tx_packets_lock);
+    }
 
     /* printk("Before [num_queued_pkts(pfr)=%u]\n", num_queued_pkts(pfr)); */
 
