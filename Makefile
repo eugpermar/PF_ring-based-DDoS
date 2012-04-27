@@ -1,7 +1,7 @@
 all:
 	cd kernel; make
 	cd tommyds-1.0; make tommy.o
-	cd lib; ./configure; make
+	cd lib; ./configure; sed -i 's/..\/..\/kernel/..\/kernel/' Makefile; make
 	cd pfcount_multichannel; make
 	#cd drivers; make #Uncomment for drivers support
 
