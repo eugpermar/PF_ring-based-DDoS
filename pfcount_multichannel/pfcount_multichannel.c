@@ -54,6 +54,7 @@ pfring_stat pfringStats;
 static struct timeval startTime;
 pfring  *ring[MAX_NUM_THREADS] = { NULL };
 unsigned long long numPkts[MAX_NUM_THREADS] = { 0 }, numBytes[MAX_NUM_THREADS] = { 0 };
+unsigned long long numPkts_IP[MAX_NUM_THREADS] = { 0 }, numBytes_IP[MAX_NUM_THREADS] = { 0 };
 u_int8_t wait_for_packet = 1,  do_shutdown = 0;
 pthread_t pd_thread[MAX_NUM_THREADS];
 
@@ -62,7 +63,6 @@ pthread_t pd_thread[MAX_NUM_THREADS];
 /**************************************
  * tommy libs
  */
-//#define WITH_MACROLIST // TODO Habilitar??
 #include "../tommyds-1.0/tommyhashdyn.h"
 #include "../tommyds-1.0/tommylist.h"
 typedef tommy_hashdyn map_sIPdIP_counters;
@@ -130,6 +130,9 @@ void print_stats() {
   unsigned long long nPktsLast = 0;
   double pkt_thpt = 0, delta;
 
+	struct counters counters; memset(&counters,0,sizeof(struct counters));
+	int nPkts_IP=0,nBytes_IP=0;
+
   if(startTime.tv_sec == 0) {
     gettimeofday(&startTime, NULL);
     return;
@@ -142,6 +145,20 @@ void print_stats() {
 
   for(i=0; i < num_channels; i++) {
     nBytes += numBytes[i], nPkts += numPkts[i];
+		nBytes_IP += numBytes_IP[i], nPkts_IP += numPkts_IP[i];
+
+		tommy_node * iterator = tommy_list_head(&counter_list[i]);
+		while(iterator){
+			counters.tcp_counter    += ((struct nodo *)iterator->data)->counters.tcp_counter;
+			counters.tcp_bytes      += ((struct nodo *)iterator->data)->counters.tcp_bytes;
+			counters.udp_counter    += ((struct nodo *)iterator->data)->counters.udp_counter;
+			counters.udp_bytes      += ((struct nodo *)iterator->data)->counters.udp_bytes;
+			counters.icmp_counter   += ((struct nodo *)iterator->data)->counters.icmp_counter;
+			counters.icmp_bytes     += ((struct nodo *)iterator->data)->counters.icmp_bytes;
+			counters.others_counter += ((struct nodo *)iterator->data)->counters.others_counter;
+			counters.others_bytes   += ((struct nodo *)iterator->data)->counters.others_bytes;
+			iterator=iterator->next;
+		}
   
     if(pfring_stats(ring[i], &pfringStat) >= 0) {
       double thpt = ((double)8*numBytes[i])/(deltaMillisec*1000);
@@ -167,9 +184,20 @@ void print_stats() {
 		i, (long long unsigned int)diff, delta, pps);
 	pkt_thpt += pps;
       }
-
-
       lastPkts[i] = numPkts[i];
+
+      fprintf(stderr,"Num packets: [TCP] %llu \t [UDP] %llu \t [ICMP] %llu \t [others] %llu [total] %llu\n",
+				counters.tcp_counter, counters.udp_counter, counters.icmp_counter, counters.others_counter,
+				counters.tcp_counter+ counters.udp_counter+ counters.icmp_counter+ counters.others_counter);
+			fprintf(stderr,"Num bytes: [TCP] %llu \t [UDP] %llu \t [ICMP] %llu \t [others] %llu [total] %llu \n",
+				counters.tcp_bytes, counters.udp_bytes, counters.icmp_bytes, counters.others_bytes,
+				counters.tcp_bytes+ counters.udp_bytes+ counters.icmp_bytes+ counters.others_bytes);			
+			double nPkts_dbl = nPkts_IP;
+			if(nPkts>0) fprintf(stderr,"Ratio: [TCP] %f \t [UDP] %f \t [ICMP] %f \t others %f \n",
+				counters.tcp_counter/nPkts_dbl, counters.udp_counter/nPkts_dbl, counters.icmp_counter/nPkts_dbl, 
+				counters.others_counter/nPkts_dbl);
+			
+			fprintf(stderr,"non-IP packets: %llu\n",nPkts-nPkts_IP);
     }
   }
 
@@ -429,7 +457,9 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 
   numPkts[threadId]++, numBytes[threadId] += h->len;
 
+	
 	if(eth_type == 0x0800) { /* IP */
+		numPkts_IP[threadId]++, numBytes_IP[threadId] += h->len;
 		memcpy(&ip, p+h->extended_hdr.parsed_header_len+sizeof(ehdr), sizeof(struct ip));
 		// TODO ¿Es necesario pasarlo al formato local? // mejor al exportar, ¿no?
 		const uint64_t hash = ((uint64_t)ntohl(ip.ip_src.s_addr)<<32)+ntohl(ip.ip_dst.s_addr);
@@ -438,7 +468,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 // 		printf("[%x]", ip.ip_p);
 // 		printf("[%x ", ntohl(ip.ip_src.s_addr));
 // 		printf("-> %x] ", ntohl(ip.ip_dst.s_addr));
-// 		printf("Hash: %lx",hash);
+// 		printf("Hash: %lx\n",hash);
 //
 // 		printf("[%s]", proto2str(ip.ip_p));
 // 		printf("[%s ", intoa(ntohl(ip.ip_src.s_addr)));
@@ -448,51 +478,57 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 
 		// TODO: Comprobar que no nos pasamos al añadir los paquetes?? count puede ser muy lento.
 		// TODO: Cambio de contexto cuando hilo principal procese paquetes.
-		map_sIPdIP_counters_node * i;
-		for (i = tommy_hashdyn_bucket(&map[threadId], tommy_inthash_u64(hash));i;i=i->next){
+		map_sIPdIP_counters_node * i = tommy_hashdyn_bucket(&map[threadId], tommy_inthash_u64(hash));
+		while(i){
 			/* we first check if the hash matches, as in the same bucket we may have multiples hash values */
-			if (i->key == tommy_inthash_u64(hash)){
-// 				printf("Hash not grow\n");
-				struct counters * act_counters = &((struct nodo *) i->data)->counters;
-				switch(proto){
-					case 0x06:
-						act_counters->tcp_counter++;
-						act_counters->tcp_bytes += h->len;
-						return;
-					case 0x11:
-						act_counters->udp_counter++;
-						act_counters->udp_bytes += h->len;
-						return;
-					case 0x01:
-						act_counters->icmp_counter++;
-						act_counters->icmp_bytes += h->len;
-						return;
-					default:
-						act_counters->others_counter++;
-						act_counters->others_bytes += h->len;
-						return;
-				}
+			if (i->key == tommy_inthash_u64(hash))
+				break;
+			i=i->next;
+		}
+		
+		printf("Hash%sgrown",i!=NULL?" ":" not ");
+
+		if(i==NULL){
+			// hash not found
+			if(counters1[threadId]->memory_block.count ==counters1[threadId]->memory_block.size ){
+				//puts("Array is full. Creating a new array.");
+				struct memory_block_list * memory_block_list_node = malloc(sizeof(struct memory_block_list));
+				size_t new_size = counters1[threadId]->memory_block.size*2;
+				memory_block_list_node->memory_block.mem = malloc(new_size*sizeof(struct nodo));
+				memory_block_list_node->memory_block.size = new_size;
+				memory_block_list_node->memory_block.count = 0;
+
+				memory_block_list_node->next = counters1[threadId];
+				counters1[threadId] = memory_block_list_node;
 			}
+			struct nodo * nodo = &(counters1[threadId]->memory_block.mem[counters1[threadId]->memory_block.count++]);
+			nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
+																	= nodo->counters.udp_counter = 0;
+			tommy_hashdyn_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
+			tommy_list_insert_tail(&counter_list[threadId],&nodo->list_node,nodo);
+			
+			i=&nodo->node;
 		}
-
-		// hash not found
-		if(counters1[threadId]->memory_block.count ==counters1[threadId]->memory_block.size ){
-			//puts("Array is full. Creating a new array.");
-			struct memory_block_list * memory_block_list_node = malloc(sizeof(struct memory_block_list));
-			size_t new_size = counters1[threadId]->memory_block.size*2;
- 			memory_block_list_node->memory_block.mem = malloc(new_size*sizeof(struct nodo));
-			memory_block_list_node->memory_block.size = new_size;
-			memory_block_list_node->memory_block.count = 0;
-
-			memory_block_list_node->next = counters1[threadId];
-			counters1[threadId] = memory_block_list_node;
+		
+		struct counters * act_counters = &((struct nodo *) i->data)->counters;
+		switch(proto){
+			case 0x06:
+				act_counters->tcp_counter++;
+				act_counters->tcp_bytes += h->len;
+				return;
+			case 0x11:
+				act_counters->udp_counter++;
+				act_counters->udp_bytes += h->len;
+				return;
+			case 0x01:
+				act_counters->icmp_counter++;
+				act_counters->icmp_bytes += h->len;
+				return;
+			default:
+				act_counters->others_counter++;
+				act_counters->others_bytes += h->len;
+				return;
 		}
-		struct nodo * nodo = &(counters1[threadId]->memory_block.mem[counters1[threadId]->memory_block.count++]);
-		nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
-		                            = nodo->counters.udp_counter = 0;
-		tommy_hashdyn_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
-		tommy_list_insert_tail(&counter_list[threadId],&nodo->list_node,nodo);
-// 		puts("Hash grow");
 	}
 }
 
