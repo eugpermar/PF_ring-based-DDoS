@@ -78,6 +78,7 @@ struct nodo{
 	tommy_node node; // map's interface
 	tommy_node list_node; // list_interface
 	struct counters counters;
+	u_int8_t rx_direction; /* 1=RX: packet received by the NIC, 0=TX: packet transmitted by the NIC */
 };
 struct memory_block{
 	struct nodo * mem;
@@ -128,6 +129,7 @@ void print_stats() {
   int i;
   unsigned long long nBytes = 0, nPkts = 0, pkt_dropped = 0;
   unsigned long long nPktsLast = 0;
+	unsigned long long incomingPkts=0,outgoingPkts=0;
   double pkt_thpt = 0, delta;
 
 	struct counters counters; memset(&counters,0,sizeof(struct counters));
@@ -149,14 +151,16 @@ void print_stats() {
 
 		tommy_node * iterator = tommy_list_head(&counter_list[i]);
 		while(iterator){
-			counters.tcp_counter    += ((struct nodo *)iterator->data)->counters.tcp_counter;
-			counters.tcp_bytes      += ((struct nodo *)iterator->data)->counters.tcp_bytes;
-			counters.udp_counter    += ((struct nodo *)iterator->data)->counters.udp_counter;
-			counters.udp_bytes      += ((struct nodo *)iterator->data)->counters.udp_bytes;
-			counters.icmp_counter   += ((struct nodo *)iterator->data)->counters.icmp_counter;
-			counters.icmp_bytes     += ((struct nodo *)iterator->data)->counters.icmp_bytes;
-			counters.others_counter += ((struct nodo *)iterator->data)->counters.others_counter;
-			counters.others_bytes   += ((struct nodo *)iterator->data)->counters.others_bytes;
+			struct nodo * nodo = (struct nodo *)iterator->data;
+			counters.tcp_counter    += nodo->counters.tcp_counter;
+			counters.tcp_bytes      += nodo->counters.tcp_bytes;
+			counters.udp_counter    += nodo->counters.udp_counter;
+			counters.udp_bytes      += nodo->counters.udp_bytes;
+			counters.icmp_counter   += nodo->counters.icmp_counter;
+			counters.icmp_bytes     += nodo->counters.icmp_bytes;
+			counters.others_counter += nodo->counters.others_counter;
+			counters.others_bytes   += nodo->counters.others_bytes;
+			(*(nodo->rx_direction?&incomingPkts:&outgoingPkts))++;
 			iterator=iterator->next;
 		}
   
@@ -198,6 +202,7 @@ void print_stats() {
 				counters.others_counter/nPkts_dbl);
 			
 			fprintf(stderr,"non-IP packets: %llu\n",nPkts-nPkts_IP);
+			fprintf(stderr,"Incoming and Outgoing ratio: %f\n",((double)incomingPkts)/outgoingPkts);
     }
   }
 
@@ -373,7 +378,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 	 struct ip ip;
 
 	 memcpy(&ehdr, p+h->extended_hdr.parsed_header_len, sizeof(struct ether_header));
-    eth_type = ntohs(ehdr.ether_type); // TODO este código ya venía, pero qué pasa si parsed_header_len==0 y tiene datos basura?
+    eth_type = ntohs(ehdr.ether_type);
 
   if(verbose) {
     u_short vlan_id;
@@ -461,7 +466,6 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 	if(eth_type == 0x0800) { /* IP */
 		numPkts_IP[threadId]++, numBytes_IP[threadId] += h->len;
 		memcpy(&ip, p+h->extended_hdr.parsed_header_len+sizeof(ehdr), sizeof(struct ip));
-		// TODO ¿Es necesario pasarlo al formato local? // mejor al exportar, ¿no?
 		const uint64_t hash = ((uint64_t)ntohl(ip.ip_src.s_addr)<<32)+ntohl(ip.ip_dst.s_addr);
 		const uint8_t proto = ip.ip_p;
 
@@ -475,9 +479,6 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 // 		printf("-> %s] ", intoa(ntohl(ip.ip_dst.s_addr)));
 // 		printf("size of map: %u\n\n",tommy_hashtable_count(&map[threadId]));
 
-
-		// TODO: Comprobar que no nos pasamos al añadir los paquetes?? count puede ser muy lento.
-		// TODO: Cambio de contexto cuando hilo principal procese paquetes.
 		map_sIPdIP_counters_node * i = tommy_hashdyn_bucket(&map[threadId], tommy_inthash_u64(hash));
 		while(i){
 			/* we first check if the hash matches, as in the same bucket we may have multiples hash values */
@@ -486,7 +487,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 			i=i->next;
 		}
 		
-		printf("Hash%sgrown",i!=NULL?" ":" not ");
+// 		printf("Hash%sgrown",i!=NULL?" ":" not ");
 
 		if(i==NULL){
 			// hash not found
@@ -502,8 +503,9 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 				counters1[threadId] = memory_block_list_node;
 			}
 			struct nodo * nodo = &(counters1[threadId]->memory_block.mem[counters1[threadId]->memory_block.count++]);
-			nodo->counters.icmp_counter = nodo->counters.others_counter = nodo->counters.tcp_counter
-																	= nodo->counters.udp_counter = 0;
+			memset(&nodo->counters,0,sizeof(struct counters));
+// 			printf("ehd len: %d\n",h->extended_hdr.parsed_header_len);
+			nodo->rx_direction = h->extended_hdr.rx_direction; // TODO Fix nunca encuentra paquetes enviados.
 			tommy_hashdyn_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
 			tommy_list_insert_tail(&counter_list[threadId],&nodo->list_node,nodo);
 			
@@ -581,21 +583,24 @@ void* packet_consumer_thread(void* _id) {
       printf("Set thread %lu on core %lu/%u\n", thread_id, core_id, numCPU);
     }
   }
+  
+  pfring_loop(ring[thread_id],dummyProcesssPacket,(u_char *)thread_id,wait_for_packet);
 
-  while(1) {
-    u_char *buffer = NULL;
-    struct pfring_pkthdr hdr;
-
-    if(do_shutdown) break;
-
-    if(pfring_recv(ring[thread_id], &buffer, 0, &hdr, wait_for_packet) > 0) {
-      if(do_shutdown) break;
-      dummyProcesssPacket(&hdr, buffer, (u_char*)thread_id);
-    } else {
-      if(wait_for_packet == 0) sched_yield();
-      //usleep(1);
-    }
-  }
+//   while(1) {
+//     u_char *buffer = NULL;
+//     struct pfring_pkthdr hdr;
+// 
+//     if(do_shutdown) break;
+// 		
+// 
+//     if(pfring_recv(ring[thread_id], &buffer, 0, &hdr, wait_for_packet) > 0) {
+//       if(do_shutdown) break;
+//       dummyProcesssPacket(&hdr, buffer, (u_char*)thread_id);
+//     } else {
+//       if(wait_for_packet == 0) sched_yield();
+//       //usleep(1);
+//     }
+//   }
 
   return(NULL);
 }
