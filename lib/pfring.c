@@ -58,14 +58,12 @@ static pfring_module_info pfring_module_list[] = {
   },
 #endif
 #ifdef HAVE_DNA
-  /*
-#ifdef HAVE_ZERO
+#if 0 //#ifdef HAVE_ZERO
   {
     .name = "dnacluster",
     .open = pfring_dna_cluster_open,
   },
 #endif
-  */
   {
     .name = "dna",
     .open = pfring_dna_open,
@@ -1238,3 +1236,72 @@ int pfring_copy_tx_packet_into_slot(pfring* ring,
 }
 
 /* **************************************************** */
+
+u_char* pfring_get_pkt_buff_data(pfring *ring, pfring_pkt_buff *pkt_handle) {
+  if(ring && ring->get_pkt_buff_data)
+    return ring->get_pkt_buff_data(ring, pkt_handle);
+
+  return NULL;
+}
+
+/* **************************************************** */
+
+void pfring_set_pkt_buff_len(pfring *ring, pfring_pkt_buff *pkt_handle, u_int32_t len) {
+  if(ring && ring->set_pkt_buff_len)
+    ring->set_pkt_buff_len(ring, pkt_handle, len);
+}
+
+/* **************************************************** */
+
+void pfring_set_pkt_buff_ifindex(pfring *ring, pfring_pkt_buff *pkt_handle, u_int32_t if_id) {
+  if(ring && ring->set_pkt_buff_ifindex)
+    ring->set_pkt_buff_ifindex(ring, pkt_handle, if_id);
+}
+
+/* **************************************************** */
+
+void pfring_add_pkt_buff_ifindex(pfring *ring, pfring_pkt_buff *pkt_handle, u_int32_t if_id) {
+  if(ring && ring->add_pkt_buff_ifindex)
+    ring->add_pkt_buff_ifindex(ring, pkt_handle, if_id);
+}
+
+/* **************************************************** */
+
+pfring_pkt_buff* pfring_alloc_pkt_buff(pfring *ring) {
+  if(ring && ring->alloc_pkt_buff)
+    return ring->alloc_pkt_buff(ring);
+
+  return NULL;
+}
+
+/* **************************************************** */
+
+void pfring_release_pkt_buff(pfring *ring, pfring_pkt_buff *pkt_handle) {
+  if(ring && ring->release_pkt_buff)
+    ring->release_pkt_buff(ring, pkt_handle);
+}
+
+/* **************************************************** */
+
+int pfring_recv_pkt_buff(pfring *ring, pfring_pkt_buff *pkt_handle, struct pfring_pkthdr *hdr, u_int8_t wait_for_incoming_packet) {
+  /* Note: this function fills the buffer pointed by pkt_handle */
+
+  if(ring && ring->recv_pkt_buff)
+    return ring->recv_pkt_buff(ring, pkt_handle, hdr, wait_for_incoming_packet);
+
+  return(PF_RING_ERROR_NOT_SUPPORTED);
+}
+
+/* **************************************************** */
+
+int pfring_send_pkt_buff(pfring *ring, pfring_pkt_buff *pkt_handle, u_int8_t flush_packet) {
+  /* Note: this function reset the buffer pointed by pkt_handle */
+
+  if(ring && ring->send_pkt_buff)
+    return ring->send_pkt_buff(ring, pkt_handle, flush_packet);
+
+  return(PF_RING_ERROR_NOT_SUPPORTED);
+}
+
+/* **************************************************** */
+

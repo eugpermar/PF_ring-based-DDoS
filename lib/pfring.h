@@ -143,6 +143,10 @@ extern "C" {
 
   /* ********************************* */
 
+  typedef void pfring_pkt_buff;
+  
+  /* ********************************* */
+  
   struct __pfring {
     u_int8_t initialized, enabled, long_header;
     packet_direction direction; /* Specify the capture direction for packets */
@@ -233,6 +237,14 @@ extern "C" {
     int       (*bounce_init)                  (pfring_bounce *);
     int       (*bounce_loop)                  (pfring_bounce *, pfringBounceProcesssPacket, const u_char *, u_int8_t);
     void      (*bounce_destroy)               (pfring_bounce *);
+    u_char*   (*get_pkt_buff_data)            (pfring *, pfring_pkt_buff *);
+    void      (*set_pkt_buff_len)             (pfring *, pfring_pkt_buff *, u_int32_t);
+    void      (*set_pkt_buff_ifindex)         (pfring *, pfring_pkt_buff *, u_int32_t);
+    void      (*add_pkt_buff_ifindex)         (pfring *, pfring_pkt_buff *, u_int32_t);
+    pfring_pkt_buff* (*alloc_pkt_buff)        (pfring *);
+    void      (*release_pkt_buff)             (pfring *, pfring_pkt_buff *);
+    int       (*recv_pkt_buff)                (pfring *, pfring_pkt_buff *, struct pfring_pkthdr *, u_int8_t);
+    int       (*send_pkt_buff)                (pfring *, pfring_pkt_buff *, u_int8_t);
 
     /* DNA only */
     int      (*dna_init)             (pfring *);
@@ -364,6 +376,15 @@ extern "C" {
   u_int pfring_get_num_tx_slots(pfring* ring);
   u_int pfring_dna_get_num_rx_slots(pfring* ring);
   int   pfring_copy_tx_packet_into_slot(pfring* ring, u_int16_t tx_slot_id, char* buffer, u_int len);
+
+  u_char* pfring_get_pkt_buff_data(pfring *ring, pfring_pkt_buff *pkt_handle);
+  void pfring_set_pkt_buff_len(pfring *ring, pfring_pkt_buff *pkt_handle, u_int32_t len);
+  void pfring_set_pkt_buff_ifindex(pfring *ring, pfring_pkt_buff *pkt_handle, u_int32_t if_id);
+  void pfring_add_pkt_buff_ifindex(pfring *ring, pfring_pkt_buff *pkt_handle, u_int32_t if_id);
+  pfring_pkt_buff* pfring_alloc_pkt_buff(pfring *ring);
+  void pfring_release_pkt_buff(pfring *ring, pfring_pkt_buff *pkt_handle);
+  int pfring_recv_pkt_buff(pfring *ring, pfring_pkt_buff *pkt_handle, struct pfring_pkthdr *hdr, u_int8_t wait_for_incoming_packet); /* Note: this function fills the buffer pointed by pkt_handle */
+  int pfring_send_pkt_buff(pfring *ring, pfring_pkt_buff *pkt_handle, u_int8_t flush_packet); /* Note: this function reset the buffer pointed by pkt_handle */
 
   /* PF_RING Socket bundle */
   void pfring_bundle_init(pfring_bundle *bundle, bundle_read_policy p);

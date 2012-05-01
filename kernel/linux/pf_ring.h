@@ -30,11 +30,7 @@
 #define DEFAULT_BUCKET_LEN            128
 #define MAX_NUM_DEVICES               256
 
-/*
-  Do NOT extend MAX_NUM_RING_SOCKETS over 64 as this is the size
-  of ring_table_bitmap (pf_ring.c)
-*/
-#define MAX_NUM_RING_SOCKETS          64 /* sizeof(u_int64_t) */
+// #define MAX_NUM_RING_SOCKETS          64 /* see MAX_NUM_LIST_ELEMENTS */
 
 /* Watermark */
 #define DEFAULT_MIN_PKT_QUEUED        128
@@ -111,6 +107,8 @@
 #define PF_RING_ERROR_NOT_SUPPORTED        -7
 #define PF_RING_ERROR_INVALID_LIB_VERSION  -8
 #define PF_RING_ERROR_UNKNOWN_ADAPTER      -9
+#define PF_RING_ERROR_NOT_ENOUGH_MEMORY   -10
+#define PF_RING_ERROR_INVALID_STATUS      -11
 
 #define REFLECTOR_NAME_LEN                 8
 
@@ -741,6 +739,7 @@ typedef struct {
 
 struct create_dna_cluster_info {
   u_int32_t cluster_id;
+  u_int32_t mode; /* socket_mode */
   u_int32_t num_slots; /* total number of rx/tx nic/slaves slots */
   u_int32_t num_slaves;
   u_int32_t slave_mem_len; /* per slave shared memory size */
@@ -751,6 +750,7 @@ struct create_dna_cluster_info {
 struct attach_dna_cluster_info {
   u_int32_t cluster_id;
   u_int32_t slave_id;
+  u_int32_t mode; /* socket_mode */
 };
 
 #ifdef __KERNEL__
@@ -887,6 +887,7 @@ typedef enum {
 struct dna_cluster {
   u_int32_t id;
   u_int32_t num_slaves;
+  socket_mode mode;
 
   atomic_t master;
   atomic_t slaves;

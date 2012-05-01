@@ -9,6 +9,11 @@ struct eth_hdr {
   u_int16_t       h_proto;                /* packet type ID field */
 };
 
+struct eth_vlan_hdr {
+  u_int16_t       h_vlan_id;              /* Tag Control Information (QoS, VLAN ID) */
+  u_int16_t       h_proto;                /* packet type ID field */
+};
+
 #define __LITTLE_ENDIAN_BITFIELD /* FIX */
 struct iphdr {
 #if defined(__LITTLE_ENDIAN_BITFIELD)

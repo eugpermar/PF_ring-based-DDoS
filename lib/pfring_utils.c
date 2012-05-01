@@ -86,7 +86,7 @@ static u_int32_t pfring_hash_pkt(struct pfring_pkthdr *hdr) {
 int pfring_parse_pkt(u_char *pkt, struct pfring_pkthdr *hdr, u_int8_t level /* 2..4 */, 
 		     u_int8_t add_timestamp /* 0,1 */, u_int8_t add_hash /* 0,1 */) {
   struct eth_hdr *eh = (struct eth_hdr*) pkt;
-  u_int32_t displ, ip_len;
+  u_int32_t displ = 0, ip_len;
   u_int16_t analized = 0, fragment_offset = 0;
 
   /* Note: in order to optimize the computation, this function expects a zero-ed 
@@ -99,15 +99,19 @@ int pfring_parse_pkt(u_char *pkt, struct pfring_pkthdr *hdr, u_int8_t level /* 2
 
   hdr->extended_hdr.parsed_pkt.eth_type = ntohs(eh->h_proto);
   hdr->extended_hdr.parsed_pkt.offset.eth_offset = 0;
+  hdr->extended_hdr.parsed_pkt.offset.vlan_offset = 0;
+  hdr->extended_hdr.parsed_pkt.vlan_id = 0; /* Any VLAN */
 
-  if(hdr->extended_hdr.parsed_pkt.eth_type == 0x8100 /* 802.1q (VLAN) */) {
-    hdr->extended_hdr.parsed_pkt.offset.vlan_offset = hdr->extended_hdr.parsed_pkt.offset.eth_offset + sizeof(struct ethhdr);
-    hdr->extended_hdr.parsed_pkt.vlan_id = (pkt[hdr->extended_hdr.parsed_pkt.offset.eth_offset + 14] & 15) * 256 + pkt[hdr->extended_hdr.parsed_pkt.offset.eth_offset + 15];
-    hdr->extended_hdr.parsed_pkt.eth_type = (pkt[hdr->extended_hdr.parsed_pkt.offset.eth_offset + 16]) * 256 + pkt[hdr->extended_hdr.parsed_pkt.offset.eth_offset + 17];
-    displ = 4;
-  } else {
-    hdr->extended_hdr.parsed_pkt.vlan_id = 0; /* Any VLAN */
-    displ = 0;
+  if (hdr->extended_hdr.parsed_pkt.eth_type == 0x8100 /* 802.1q (VLAN) */) {
+    struct eth_vlan_hdr *vh;
+    hdr->extended_hdr.parsed_pkt.offset.vlan_offset = sizeof(struct ethhdr) - sizeof(struct eth_vlan_hdr);
+    while (hdr->extended_hdr.parsed_pkt.eth_type == 0x8100 /* 802.1q (VLAN) */ ) {
+      hdr->extended_hdr.parsed_pkt.offset.vlan_offset += sizeof(struct eth_vlan_hdr);
+      vh = (struct eth_vlan_hdr *) &pkt[hdr->extended_hdr.parsed_pkt.offset.vlan_offset];
+      hdr->extended_hdr.parsed_pkt.vlan_id = ntohs(vh->h_vlan_id) & 0x0fff;
+      hdr->extended_hdr.parsed_pkt.eth_type = ntohs(vh->h_proto);
+      displ += sizeof(struct eth_vlan_hdr);
+    }
   }
 
   hdr->extended_hdr.parsed_pkt.offset.l3_offset = hdr->extended_hdr.parsed_pkt.offset.eth_offset + displ + sizeof(struct eth_hdr);
@@ -122,12 +126,12 @@ L3:
   if (hdr->extended_hdr.parsed_pkt.offset.l4_offset != 0)
       goto L4;
 
-  if(hdr->extended_hdr.parsed_pkt.eth_type == 0x0800 /* IPv4 */) {
+  if (hdr->extended_hdr.parsed_pkt.eth_type == 0x0800 /* IPv4 */) {
     struct iphdr *ip;
 
     hdr->extended_hdr.parsed_pkt.ip_version = 4;
 
-    if(hdr->caplen < hdr->extended_hdr.parsed_pkt.offset.l3_offset + sizeof(struct iphdr))
+    if (hdr->caplen < hdr->extended_hdr.parsed_pkt.offset.l3_offset + sizeof(struct iphdr))
       goto TIMESTAMP;
 
     ip = (struct iphdr *)(&pkt[hdr->extended_hdr.parsed_pkt.offset.l3_offset]);

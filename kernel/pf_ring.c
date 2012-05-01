@@ -454,7 +454,10 @@ int lockless_list_add(lockless_list *l, void *elem) {
   if(unlikely(enable_debug))
     printk("[PF_RING] -> BEGIN %s() [total=%u]\n", __FUNCTION__, l->num_elements);
 
-  if(l->num_elements >= MAX_NUM_LIST_ELEMENTS) return(-1); /* Too many */
+  if(l->num_elements >= MAX_NUM_LIST_ELEMENTS) {
+    printk("[PF_RING] Exceeded the maximum number of list items\n");
+    return(-1); /* Too many */
+  }
 
   /* I could avoid mutexes but ... */
   write_lock_bh(&l->list_lock);
@@ -1620,17 +1623,21 @@ static int ring_alloc_mem(struct sock *sk)
  * store the sk in a new element and add it
  * to the head of the list.
  */
-static inline void ring_insert(struct sock *sk)
+static inline int ring_insert(struct sock *sk)
 {
   struct pf_ring_socket *pfr;
 
   if(unlikely(enable_debug))
     printk("[PF_RING] ring_insert()\n");
 
-  lockless_list_add(&ring_table, sk);
+  if (lockless_list_add(&ring_table, sk) == -1)
+    return -1;
+
   pfr = (struct pf_ring_socket *)ring_sk(sk);
   pfr->ring_pid = current->pid;
   bitmap_zero(pfr->netdev_mask, MAX_NUM_DEVICES_ID), pfr->num_bound_devices = 0;
+
+  return 0;
 }
 
 /* ********************************** */
@@ -3246,9 +3253,9 @@ int check_wildcard_rules(struct sk_buff *skb,
 	   * (we can reuse entry, ptr, tmp_ptr because we will stop rule evaluation) */
 	  free_rule_element_id = 0;
           list_for_each_safe(ptr, tmp_ptr, &pfr->sw_filtering_rules) {
-            entry = list_entry(ptr, sw_filtering_rule_element, list);
-            if(entry->rule.rule_id == free_rule_element_id)
-	      free_rule_element_id = entry->rule.rule_id + 1;
+            sw_filtering_rule_element *tmp_entry = list_entry(ptr, sw_filtering_rule_element, list);
+            if(tmp_entry->rule.rule_id == free_rule_element_id)
+              free_rule_element_id++;
 	    else break; /* we found an hole */
 	  }
 
@@ -4326,10 +4333,8 @@ static int ring_create(
 
   ring_sk(sk) = ring_sk_datatype(kmalloc(sizeof(*pfr), GFP_KERNEL));
 
-  if(!(pfr = ring_sk(sk))) {
-    sk_free(sk);
-    goto out;
-  }
+  if(!(pfr = ring_sk(sk)))
+    goto free_sk;
 
   memset(pfr, 0, sizeof(*pfr));
   pfr->ring_shutdown = 0;
@@ -4357,7 +4362,9 @@ static int ring_create(
   rwlock_init(&pfr->tx.consume_tx_packets_lock);
   pfr->tx.enable_tx_with_bounce = 0;
   pfr->tx.last_tx_dev_idx = UNKNOWN_INTERFACE, pfr->tx.last_tx_dev = NULL;
-  ring_insert(sk);
+  
+  if (ring_insert(sk) == -1)
+    goto free_pfr;
 
   ring_proc_add(pfr);
 
@@ -4365,7 +4372,12 @@ static int ring_create(
     printk("[PF_RING] ring_create(): created\n");
 
   return(0);
- out:
+
+free_pfr:
+  kfree(ring_sk(sk));
+free_sk:
+  sk_free(sk);
+out:
   return err;
 }
 
@@ -4768,7 +4780,7 @@ static void free_extra_dma_memory(struct dma_memory_info *dma_memory) {
 
 static struct dna_cluster* dna_cluster_create(u_int32_t dna_cluster_id, u_int32_t num_slots,
                                               u_int32_t num_slaves, u_int32_t slave_mem_len, 
-					      u_int32_t master_persistent_mem_len,
+					      u_int32_t master_persistent_mem_len, socket_mode mode,
                                               struct device *hwdev, u_int32_t slot_len, u_int32_t chunk_len)
 {
   struct list_head *ptr, *tmp_ptr;
@@ -4813,6 +4825,7 @@ static struct dna_cluster* dna_cluster_create(u_int32_t dna_cluster_id, u_int32_
 
     dnac->id = dna_cluster_id;
     dnac->num_slaves = num_slaves;
+    dnac->mode = mode;
 
     atomic_set(&dnac->master, 0);
     atomic_set(&dnac->slaves, 0);
@@ -4909,7 +4922,7 @@ static void dna_cluster_remove(struct dna_cluster *dnac, dna_cluster_client_type
   write_unlock(&dna_cluster_lock);
 }
 
-static struct dna_cluster* dna_cluster_attach(u_int32_t dna_cluster_id, wait_queue_head_t *slave_waitqueue, u_int32_t *slave_id) {
+static struct dna_cluster* dna_cluster_attach(u_int32_t dna_cluster_id, wait_queue_head_t *slave_waitqueue, u_int32_t *slave_id, u_int32_t *mode) {
   struct list_head *ptr, *tmp_ptr;
   struct dna_cluster *entry;
   struct dna_cluster *dnac = NULL;
@@ -4940,6 +4953,7 @@ static struct dna_cluster* dna_cluster_attach(u_int32_t dna_cluster_id, wait_que
         if (dnac->slave_waitqueue[i] == NULL) {
           dnac->slave_waitqueue[i] = slave_waitqueue;
 	  *slave_id = i;
+	  *mode = dnac->mode;
 	  slot_found = 1;
 	  break;
 	}
@@ -4962,7 +4976,7 @@ unlock:
   if(unlikely(enable_debug)) {
     if(dnac != NULL)
       printk("[PF_RING] %s(%u) attached to DNA cluster [master: %u][slaves: %u]\n",
-           __FUNCTION__, dna_cluster_id, atomic_read(&dnac->master), atomic_read(&dnac->slaves));
+        __FUNCTION__, dna_cluster_id, atomic_read(&dnac->master), atomic_read(&dnac->slaves));
     else
       printk("[PF_RING] %s() error\n", __FUNCTION__);
   }
@@ -7060,6 +7074,7 @@ static int ring_setsockopt(struct socket *sock,
 
       pfr->dna_cluster = dna_cluster_create(cdnaci.cluster_id, cdnaci.num_slots, cdnaci.num_slaves,
                                             cdnaci.slave_mem_len, cdnaci.master_persistent_mem_len,
+					    cdnaci.mode,
 					    pfr->dna_device->hwdev,
                                             pfr->dna_device->mem_info.rx.packet_memory_slot_len,
                                             pfr->dna_device->mem_info.rx.packet_memory_chunk_len);
@@ -7094,7 +7109,7 @@ static int ring_setsockopt(struct socket *sock,
       if(copy_from_user(&adnaci, optval, sizeof(adnaci)))
 	return -EFAULT;
 
-      pfr->dna_cluster = dna_cluster_attach(adnaci.cluster_id, &pfr->ring_slots_waitqueue, &adnaci.slave_id);
+      pfr->dna_cluster = dna_cluster_attach(adnaci.cluster_id, &pfr->ring_slots_waitqueue, &adnaci.slave_id, &adnaci.mode);
 
       if(pfr->dna_cluster == NULL) {
 	if(unlikely(enable_debug))
