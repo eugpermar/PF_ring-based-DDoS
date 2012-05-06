@@ -4781,7 +4781,8 @@ static void free_extra_dma_memory(struct dma_memory_info *dma_memory) {
 static struct dna_cluster* dna_cluster_create(u_int32_t dna_cluster_id, u_int32_t num_slots,
                                               u_int32_t num_slaves, u_int32_t slave_mem_len, 
 					      u_int32_t master_persistent_mem_len, socket_mode mode,
-                                              struct device *hwdev, u_int32_t slot_len, u_int32_t chunk_len)
+                                              struct device *hwdev, u_int32_t slot_len, u_int32_t chunk_len,
+					      u_int32_t *recovered)
 {
   struct list_head *ptr, *tmp_ptr;
   struct dna_cluster *entry;
@@ -4869,6 +4870,22 @@ static struct dna_cluster* dna_cluster_create(u_int32_t dna_cluster_id, u_int32_
 
     if(unlikely(enable_debug))
       printk("[PF_RING] %s(%u) New DNA cluster created\n",  __FUNCTION__, dna_cluster_id);
+
+    *recovered = 0;
+  } else {
+    /* recovering an old cluster */
+
+    /* checking cluster parameters */
+    if (dnac->num_slaves != num_slaves 
+	|| dnac->slave_shared_memory_len != PAGE_ALIGN(slave_mem_len)
+	|| dnac->master_persistent_memory_len != PAGE_ALIGN(master_persistent_mem_len)
+	|| dnac->mode != mode
+        || dnac->extra_dma_memory->num_slots != num_slots) {
+      dnac = NULL;
+      goto unlock;
+    }
+
+    *recovered = 1;
   }
 
   atomic_inc(&dnac->master);
@@ -7077,7 +7094,8 @@ static int ring_setsockopt(struct socket *sock,
 					    cdnaci.mode,
 					    pfr->dna_device->hwdev,
                                             pfr->dna_device->mem_info.rx.packet_memory_slot_len,
-                                            pfr->dna_device->mem_info.rx.packet_memory_chunk_len);
+                                            pfr->dna_device->mem_info.rx.packet_memory_chunk_len, 
+					    &cdnaci.recovered);
 
       if(pfr->dna_cluster == NULL) {
 	if(unlikely(enable_debug))
@@ -7088,6 +7106,14 @@ static int ring_setsockopt(struct socket *sock,
 
       pfr->dna_cluster_type = dna_cluster_master;
 
+      /* copying back the structure (actually we need cdnaci.recovered only) */
+      if(copy_to_user(optval, &cdnaci, sizeof(cdnaci))) {
+        dna_cluster_remove(pfr->dna_cluster, pfr->dna_cluster_type, 0);
+	pfr->dna_cluster = NULL;
+        return -EFAULT;
+      }
+
+      /* copying dma addresses to userspace at the end of the structure */
       if(copy_to_user(optval + sizeof(cdnaci), pfr->dna_cluster->extra_dma_memory->dma_addr,
                       sizeof(u_int64_t) * cdnaci.num_slots)) {
         dna_cluster_remove(pfr->dna_cluster, pfr->dna_cluster_type, 0);

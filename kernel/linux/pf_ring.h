@@ -127,7 +127,11 @@
   please do not change them to unsigned
 */
 struct pkt_offset {
-  int16_t eth_offset; /* This offset *must* be added to all offsets below */
+  int16_t eth_offset; /* 
+			 This offset *must* be added to all offsets below 
+			 ONLY if you are inside the kernel (e.g. when you
+			 code a pf_ring plugin). Ignore it in user-space.
+		       */
   int16_t vlan_offset;
   int16_t l3_offset;
   int16_t l4_offset;
@@ -744,6 +748,7 @@ struct create_dna_cluster_info {
   u_int32_t num_slaves;
   u_int32_t slave_mem_len; /* per slave shared memory size */
   u_int32_t master_persistent_mem_len;
+  u_int32_t recovered; /* fresh or recovered */
   u_int64_t dma_addr[];
 };
 
