@@ -160,7 +160,9 @@ void print_stats() {
 			counters.icmp_bytes     += nodo->counters.icmp_bytes;
 			counters.others_counter += nodo->counters.others_counter;
 			counters.others_bytes   += nodo->counters.others_bytes;
-			(*(nodo->rx_direction?&incomingPkts:&outgoingPkts))++;
+			(*(nodo->rx_direction?&incomingPkts:&outgoingPkts))
+				+=nodo->counters.icmp_counter+nodo->counters.udp_counter+nodo->counters.tcp_counter
+				+nodo->counters.others_counter;
 			iterator=iterator->next;
 		}
   
@@ -202,7 +204,8 @@ void print_stats() {
 				counters.others_counter/nPkts_dbl);
 			
 			fprintf(stderr,"non-IP packets: %llu\n",nPkts-nPkts_IP);
-			fprintf(stderr,"Incoming and Outgoing ratio: %f\n",((double)incomingPkts)/outgoingPkts);
+			fprintf(stderr,"Incoming: %llu \tOutgoing : %llu \tratio: %f\n",incomingPkts,
+					outgoingPkts,((double)incomingPkts)/outgoingPkts);
     }
   }
 
@@ -666,7 +669,8 @@ int main(int argc, char* argv[]) {
   printf("Capturing from %s\n", device);
 
   /* hardcode: promisc=1, to_ms=500 */
-  num_channels = pfring_open_multichannel(device, snaplen, PF_RING_PROMISC, ring);
+  num_channels = pfring_open_multichannel(device, snaplen, PF_RING_PROMISC|  PF_RING_LONG_HEADER,
+										  ring);
   
   if(num_channels <= 0) {
     fprintf(stderr, "pfring_open_multichannel() returned %d [%s]\n", num_channels, strerror(errno));
