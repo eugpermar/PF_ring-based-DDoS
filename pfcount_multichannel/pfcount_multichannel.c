@@ -70,6 +70,7 @@ typedef tommy_hashdyn_node map_sIPdIP_counters_node;
 typedef tommy_hashdyn map_ports_connection_status;
 tommy_hashdyn map[MAX_NUM_THREADS];
 tommy_list counter_list[MAX_NUM_THREADS];
+tommy_list all_connection_status_list[MAX_NUM_THREADS];
 typedef enum{SYN,SYNACK,ACK} SYNC_STATE;
 struct counters{
 	unsigned long long tcp_counter,udp_counter,icmp_counter,others_counter;
@@ -85,7 +86,8 @@ struct nodo{
 	struct nodo * reverse_node; // node with reverse sIP,dIP tuple.
 };
 struct sync_status_node{
-	tommy_node node;
+	tommy_node node; // map's interface
+	tommy_node list_node;
 	SYNC_STATE state;
 };
 struct memory_block{
@@ -205,6 +207,19 @@ void print_stats() {
 				+nodo->counters.others_counter;
 			iterator=iterator->next;
 		}
+		
+		iterator = tommy_list_head(&all_connection_status_list[i]);
+		while(iterator){
+			struct sync_status_node * node = (struct sync_status_node *) iterator->data;
+			switch(node->state){
+				case SYN:
+				case SYNACK:
+					owcPkts++;
+				default:
+					break;
+			};
+			iterator=iterator->next;
+		}
   
     if(pfring_stats(ring[i], &pfringStat) >= 0) {
       double thpt = ((double)8*numBytes[i])/(deltaMillisec*1000);
@@ -246,6 +261,7 @@ void print_stats() {
 			fprintf(stderr,"non-IP packets: %llu\n",nPkts-nPkts_IP);
 			fprintf(stderr,"Incoming: %llu \tOutgoing : %llu \tratio: %f\n",incomingPkts,
 					outgoingPkts,((double)incomingPkts)/outgoingPkts);
+			fprintf(stderr,"OWCR: [TCP] %f\n",owcPkts/nPkts_dbl);
     }
   }
 
@@ -593,9 +609,9 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 				porthash = tommy_inthash_u32((dst_port<<16)|src_port);
 			}				
 			
- 			printf("hash seed: %x; hash: %x\n",
- 						 interesting_flags!=(0x10|0x02)?((src_port<<16)+dst_port):((dst_port<<16)+src_port),
- 						 porthash);
+//  			printf("hash seed: %x; hash: %x\n",
+//  						 interesting_flags!=(0x10|0x02)?((src_port<<16)+dst_port):((dst_port<<16)+src_port),
+//  						 porthash);
 			// printf("connections_status_list: %p\n",connections_status_list);
 			tommy_hashdyn_node * map_ports_iterator = find_value(connections_status_list,porthash);
 			struct sync_status_node * sync_status_node=map_ports_iterator?map_ports_iterator->data:NULL;
@@ -616,6 +632,8 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 							= &(((struct sync_status_node *)memory_block->mem)[memory_block->count++]);
 						tommy_hashdyn_insert(connections_status_list,
 																&sync_status_node->node,sync_status_node,porthash);
+						tommy_list_insert_tail(&all_connection_status_list[threadId],
+						                     &sync_status_node->list_node,sync_status_node);
 					}
 					
 					sync_status_node->state=SYN;
