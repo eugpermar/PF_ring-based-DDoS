@@ -1,0 +1,41 @@
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/ntop/!svn/ver/5346/trunk/PF_RING/userland/lib/libs
+END
+libpfring_zero_i686.a
+K 25
+svn:wc:ra_dav:version-url
+V 77
+/svn/ntop/!svn/ver/5329/trunk/PF_RING/userland/lib/libs/libpfring_zero_i686.a
+END
+libpfring_zero_x86_64.a
+K 25
+svn:wc:ra_dav:version-url
+V 79
+/svn/ntop/!svn/ver/5318/trunk/PF_RING/userland/lib/libs/libpfring_zero_x86_64.a
+END
+libpfring_dna_i686.a
+K 25
+svn:wc:ra_dav:version-url
+V 76
+/svn/ntop/!svn/ver/5346/trunk/PF_RING/userland/lib/libs/libpfring_dna_i686.a
+END
+libpfring_dna_x86_64.a
+K 25
+svn:wc:ra_dav:version-url
+V 78
+/svn/ntop/!svn/ver/5345/trunk/PF_RING/userland/lib/libs/libpfring_dna_x86_64.a
+END
+libpfring_mod_virtual_i686.a
+K 25
+svn:wc:ra_dav:version-url
+V 84
+/svn/ntop/!svn/ver/5250/trunk/PF_RING/userland/lib/libs/libpfring_mod_virtual_i686.a
+END
+libpfring_mod_virtual_x86_64.a
+K 25
+svn:wc:ra_dav:version-url
+V 86
+/svn/ntop/!svn/ver/5249/trunk/PF_RING/userland/lib/libs/libpfring_mod_virtual_x86_64.a
+END

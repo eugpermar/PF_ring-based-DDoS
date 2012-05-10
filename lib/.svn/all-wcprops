@@ -1,0 +1,143 @@
+K 25
+svn:wc:ra_dav:version-url
+V 50
+/svn/ntop/!svn/ver/5346/trunk/PF_RING/userland/lib
+END
+pfring_utils.h
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/svn/ntop/!svn/ver/5339/trunk/PF_RING/userland/lib/pfring_utils.h
+END
+pfring_mod_dna.h
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/ntop/!svn/ver/5315/trunk/PF_RING/userland/lib/pfring_mod_dna.h
+END
+pfring_mod_usring.c
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/svn/ntop/!svn/ver/5305/trunk/PF_RING/userland/lib/pfring_mod_usring.c
+END
+README
+K 25
+svn:wc:ra_dav:version-url
+V 57
+/svn/ntop/!svn/ver/5223/trunk/PF_RING/userland/lib/README
+END
+pfring_i82599.c
+K 25
+svn:wc:ra_dav:version-url
+V 66
+/svn/ntop/!svn/ver/5217/trunk/PF_RING/userland/lib/pfring_i82599.c
+END
+pfring_mod_usring.h
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/svn/ntop/!svn/ver/5217/trunk/PF_RING/userland/lib/pfring_mod_usring.h
+END
+README.REDHAT
+K 25
+svn:wc:ra_dav:version-url
+V 64
+/svn/ntop/!svn/ver/4866/trunk/PF_RING/userland/lib/README.REDHAT
+END
+pfring_mod.c
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/svn/ntop/!svn/ver/5321/trunk/PF_RING/userland/lib/pfring_mod.c
+END
+pfring.c
+K 25
+svn:wc:ra_dav:version-url
+V 59
+/svn/ntop/!svn/ver/5344/trunk/PF_RING/userland/lib/pfring.c
+END
+pfring_hw_filtering.c
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/ntop/!svn/ver/5217/trunk/PF_RING/userland/lib/pfring_hw_filtering.c
+END
+COPYING
+K 25
+svn:wc:ra_dav:version-url
+V 58
+/svn/ntop/!svn/ver/3836/trunk/PF_RING/userland/lib/COPYING
+END
+pfring_mod.h
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/svn/ntop/!svn/ver/5321/trunk/PF_RING/userland/lib/pfring_mod.h
+END
+pfring.h
+K 25
+svn:wc:ra_dav:version-url
+V 59
+/svn/ntop/!svn/ver/5344/trunk/PF_RING/userland/lib/pfring.h
+END
+pfring_hw_filtering.h
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/ntop/!svn/ver/5217/trunk/PF_RING/userland/lib/pfring_hw_filtering.h
+END
+pfring_mod_dag.c
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/ntop/!svn/ver/5217/trunk/PF_RING/userland/lib/pfring_mod_dag.c
+END
+pfring_mod_virtual.h
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/ntop/!svn/ver/5242/trunk/PF_RING/userland/lib/pfring_mod_virtual.h
+END
+configure
+K 25
+svn:wc:ra_dav:version-url
+V 60
+/svn/ntop/!svn/ver/5266/trunk/PF_RING/userland/lib/configure
+END
+Makefile.in
+K 25
+svn:wc:ra_dav:version-url
+V 62
+/svn/ntop/!svn/ver/5297/trunk/PF_RING/userland/lib/Makefile.in
+END
+pfring_mod_dag.h
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/ntop/!svn/ver/5217/trunk/PF_RING/userland/lib/pfring_mod_dag.h
+END
+configure.in
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/svn/ntop/!svn/ver/5266/trunk/PF_RING/userland/lib/configure.in
+END
+pfring_utils.c
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/svn/ntop/!svn/ver/5339/trunk/PF_RING/userland/lib/pfring_utils.c
+END
+pfring_mod_dna.c
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/ntop/!svn/ver/5315/trunk/PF_RING/userland/lib/pfring_mod_dna.c
+END
+pfring_redirector.c
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/svn/ntop/!svn/ver/5305/trunk/PF_RING/userland/lib/pfring_redirector.c
+END
