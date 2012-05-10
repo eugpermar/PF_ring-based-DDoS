@@ -65,11 +65,12 @@ pthread_t pd_thread[MAX_NUM_THREADS];
  */
 #include "../tommyds-1.0/tommyhashdyn.h"
 #include "../tommyds-1.0/tommylist.h"
-typedef tommy_hashdyn map_sIPdIP_counters;
+#include "assert.h"
 typedef tommy_hashdyn_node map_sIPdIP_counters_node;
-typedef tommy_list counters_list; // tommy does not provide a way to iterate over a map.
-map_sIPdIP_counters map[MAX_NUM_THREADS];
-counters_list counter_list[MAX_NUM_THREADS];
+typedef tommy_hashdyn map_ports_connection_status;
+tommy_hashdyn map[MAX_NUM_THREADS];
+tommy_list counter_list[MAX_NUM_THREADS];
+typedef enum{SYN,SYNACK,ACK} SYNC_STATE;
 struct counters{
 	unsigned long long tcp_counter,udp_counter,icmp_counter,others_counter;
 	unsigned long long tcp_bytes,udp_bytes,icmp_bytes,others_bytes;
@@ -78,21 +79,59 @@ struct nodo{
 	tommy_node node; // map's interface
 	tommy_node list_node; // list_interface
 	struct counters counters;
+	map_ports_connection_status ports_conections_status; // TODO a little bit expensive. In the end,
+	                                                     // we count ports.
 	u_int8_t rx_direction; /* 1=RX: packet received by the NIC, 0=TX: packet transmitted by the NIC */
+	struct nodo * reverse_node; // node with reverse sIP,dIP tuple.
+};
+struct sync_status_node{
+	tommy_node node;
+	SYNC_STATE state;
 };
 struct memory_block{
-	struct nodo * mem;
+	void * mem;
 	size_t count,size;
 };
 struct memory_block_list{
 	struct memory_block memory_block;
 	struct memory_block_list * next;
 };
-// TODO reservar solo los necesarios? entonces:
-// struct nodo * counters1[MAX_NUM_THREADS] y malloc en main().
-struct memory_block_list * counters1[MAX_NUM_THREADS];
+struct memory_block_list * counters_pool[MAX_NUM_THREADS];
+struct memory_block_list * syncs_states_pool[MAX_NUM_THREADS];
 
 #define INITIAL_RECORDS_PER_THREAD 1024
+#define INITIAL_PORTS_POOL_SIZE 1
+
+inline tommy_hashdyn_node* find_value(tommy_hashdyn * const hashdyn,const tommy_uint64_t hash){
+	tommy_hashdyn_node * i = tommy_hashdyn_bucket(hashdyn, hash);
+	while(i){
+		// we first check if the hash matches, as in the same bucket we may have multiples hash values
+		if (i->key == hash)
+			break;
+		i=i->next;
+	}
+	return i;
+}
+
+inline void grow_memory_block_list(struct memory_block_list ** list,const size_t element_size){
+	struct memory_block_list * memory_block_list_node = malloc(sizeof(struct memory_block_list));
+	size_t new_size = (*list)->memory_block.size*2;
+	// printf("Array %p is full. Creating a new array of size %lu",*list,new_size);
+	// puts(  "//////////////////////////////////////////////////");
+	int i;
+	for(i=0;i<num_channels;++i){
+		if(*list==counters_pool[i])
+			printf("Counter pool threadId=%d growing",i);
+		else if(*list==syncs_states_pool[i])
+			printf("connections status threadId=%d growing",i);
+	}
+	memory_block_list_node->memory_block.mem = malloc(new_size*element_size);
+	memory_block_list_node->memory_block.size = new_size;
+	memory_block_list_node->memory_block.count = 0;
+
+	memory_block_list_node->next = *list;
+	*list = memory_block_list_node;
+}
 
 /* *************************************** */
 /*
@@ -130,6 +169,7 @@ void print_stats() {
   unsigned long long nBytes = 0, nPkts = 0, pkt_dropped = 0;
   unsigned long long nPktsLast = 0;
 	unsigned long long incomingPkts=0,outgoingPkts=0;
+	unsigned long long owcPkts=0;
   double pkt_thpt = 0, delta;
 
 	struct counters counters; memset(&counters,0,sizeof(struct counters));
@@ -469,7 +509,7 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 	if(eth_type == 0x0800) { /* IP */
 		numPkts_IP[threadId]++, numBytes_IP[threadId] += h->len;
 		memcpy(&ip, p+h->extended_hdr.parsed_header_len+sizeof(ehdr), sizeof(struct ip));
-		const uint64_t hash = ((uint64_t)ntohl(ip.ip_src.s_addr)<<32)+ntohl(ip.ip_dst.s_addr);
+		const uint64_t pre_hash = ((uint64_t)ntohl(ip.ip_src.s_addr)<<32)+ntohl(ip.ip_dst.s_addr);
 		const uint8_t proto = ip.ip_p;
 
 // 		printf("[%x]", ip.ip_p);
@@ -482,34 +522,32 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 // 		printf("-> %s] ", intoa(ntohl(ip.ip_dst.s_addr)));
 // 		printf("size of map: %u\n\n",tommy_hashtable_count(&map[threadId]));
 
-		map_sIPdIP_counters_node * i = tommy_hashdyn_bucket(&map[threadId], tommy_inthash_u64(hash));
-		while(i){
-			/* we first check if the hash matches, as in the same bucket we may have multiples hash values */
-			if (i->key == tommy_inthash_u64(hash))
-				break;
-			i=i->next;
-		}
+		map_sIPdIP_counters_node * i = find_value(&map[threadId],tommy_inthash_u64(pre_hash));
 		
 // 		printf("Hash%sgrown",i!=NULL?" ":" not ");
 
-		if(i==NULL){
-			// hash not found
-			if(counters1[threadId]->memory_block.count ==counters1[threadId]->memory_block.size ){
-				//puts("Array is full. Creating a new array.");
-				struct memory_block_list * memory_block_list_node = malloc(sizeof(struct memory_block_list));
-				size_t new_size = counters1[threadId]->memory_block.size*2;
-				memory_block_list_node->memory_block.mem = malloc(new_size*sizeof(struct nodo));
-				memory_block_list_node->memory_block.size = new_size;
-				memory_block_list_node->memory_block.count = 0;
-
-				memory_block_list_node->next = counters1[threadId];
-				counters1[threadId] = memory_block_list_node;
-			}
-			struct nodo * nodo = &(counters1[threadId]->memory_block.mem[counters1[threadId]->memory_block.count++]);
+		if(i==NULL){ // hash not found
+			//printf("packet pool memsegment count/size: ");
+			//printf("%lu/%lu\n",counters_pool[threadId]->memory_block.count,
+			//                   counters_pool[threadId]->memory_block.size);
+			if(counters_pool[threadId]->memory_block.count ==counters_pool[threadId]->memory_block.size )
+				grow_memory_block_list(&counters_pool[threadId],sizeof(struct nodo));
+			struct nodo * nodo 
+				=&(((struct nodo *) counters_pool[threadId]->memory_block.mem)
+					[counters_pool[threadId]->memory_block.count++]);
 			memset(&nodo->counters,0,sizeof(struct counters));
+			tommy_hashdyn_init(&nodo->ports_conections_status);
 // 			printf("ehd len: %d\n",h->extended_hdr.parsed_header_len);
-			nodo->rx_direction = h->extended_hdr.rx_direction; // TODO Fix nunca encuentra paquetes enviados.
-			tommy_hashdyn_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(hash));
+			nodo->rx_direction = h->extended_hdr.rx_direction;
+			tommy_hashdyn_node * reverse_node_node 
+				= find_value(&map[threadId],tommy_inthash_u64(pre_hash<<32|pre_hash>>32));
+			if(reverse_node_node){
+				nodo->reverse_node = reverse_node_node->data;
+				nodo->reverse_node->reverse_node = nodo;
+			}else{
+				nodo->reverse_node=NULL;
+			}
+			tommy_hashdyn_insert(&map[threadId],&nodo->node,nodo,tommy_inthash_u64(pre_hash));
 			tommy_list_insert_tail(&counter_list[threadId],&nodo->list_node,nodo);
 			
 			i=&nodo->node;
@@ -520,19 +558,83 @@ void dummyProcesssPacket(const struct pfring_pkthdr *h, const u_char *p, const u
 			case 0x06:
 				act_counters->tcp_counter++;
 				act_counters->tcp_bytes += h->len;
-				return;
+				break;
 			case 0x11:
 				act_counters->udp_counter++;
 				act_counters->udp_bytes += h->len;
-				return;
+				break;
 			case 0x01:
 				act_counters->icmp_counter++;
 				act_counters->icmp_bytes += h->len;
-				return;
+				break;
 			default:
 				act_counters->others_counter++;
 				act_counters->others_bytes += h->len;
-				return;
+				break;
+		}
+		
+		const u_int8_t interesting_flags = h->extended_hdr.parsed_pkt.tcp.flags&(0x10|0x02);
+		if(proto==0x06 && interesting_flags){ // SYN or ACK flag activated
+			const u_int16_t src_port = h->extended_hdr.parsed_pkt.l4_src_port,
+			                dst_port = h->extended_hdr.parsed_pkt.l4_dst_port;
+// 			puts("ACK or SYN");
+// 			printf("Interesting flags: %x\n",interesting_flags);
+			// if(interesting_flags==0x02)
+			//	puts("SYN!!");
+			// printf("src->dest: %d->%d, %x->%x\n",src_port,dst_port,src_port,dst_port);
+			
+			tommy_uint32_t porthash;
+			map_ports_connection_status * connections_status_list;
+			if(interesting_flags!=(0x10|0x02)){
+				connections_status_list = &((struct nodo*)i->data)->ports_conections_status;
+				porthash = tommy_inthash_u32((src_port<<16)|dst_port);
+			}else{ // SYN+ACK, response to a SYN
+				connections_status_list = &((struct nodo*)i->data)->reverse_node->ports_conections_status;
+				porthash = tommy_inthash_u32((dst_port<<16)|src_port);
+			}				
+			
+ 			printf("hash seed: %x; hash: %x\n",
+ 						 interesting_flags!=(0x10|0x02)?((src_port<<16)+dst_port):((dst_port<<16)+src_port),
+ 						 porthash);
+			// printf("connections_status_list: %p\n",connections_status_list);
+			tommy_hashdyn_node * map_ports_iterator = find_value(connections_status_list,porthash);
+			struct sync_status_node * sync_status_node=map_ports_iterator?map_ports_iterator->data:NULL;
+			switch(interesting_flags){
+				case 0x02: // only SYN
+					if(map_ports_iterator){
+						sync_status_node=map_ports_iterator->data;
+					}else{
+						struct memory_block * memory_block = &syncs_states_pool[threadId]->memory_block;
+// 						printf("count/size of syncs_states_pool:%lu/%lu",memory_block->count,
+// 						                                                 memory_block->size);
+						if(memory_block->count==memory_block->size){
+							grow_memory_block_list(&syncs_states_pool[threadId],sizeof(struct sync_status_node));
+							memory_block = &syncs_states_pool[threadId]->memory_block;
+						}
+						
+						sync_status_node
+							= &(((struct sync_status_node *)memory_block->mem)[memory_block->count++]);
+						tommy_hashdyn_insert(connections_status_list,
+																&sync_status_node->node,sync_status_node,porthash);
+					}
+					
+					sync_status_node->state=SYN;
+					break;
+					
+				case 0x10|0x02: // SYN+ACK
+					if(sync_status_node!=NULL && sync_status_node->state==SYN)
+						sync_status_node->state=SYNACK;
+					break;
+					
+				case 0x10:
+					if(sync_status_node!=NULL && sync_status_node->state==SYNACK)
+						sync_status_node->state=ACK;
+					break;
+					
+				default:
+					printf("This should not be executed... flags: %x\n",interesting_flags);
+					exit(-1);
+			};
 		}
 	}
 }
@@ -714,12 +816,15 @@ int main(int argc, char* argv[]) {
 
     pfring_enable_ring(ring[i]);
 
-		tommy_hashdyn_init(map+i);
-		counters1[i] = malloc(sizeof(struct memory_block_list));
-		counters1[i]->memory_block.count = 0;
-		counters1[i]->memory_block.mem  = malloc(INITIAL_RECORDS_PER_THREAD*sizeof(struct nodo));
-		counters1[i]->memory_block.size = INITIAL_RECORDS_PER_THREAD;
-
+		tommy_hashdyn_init(&map[i]);
+		counters_pool[i] = malloc(sizeof(struct memory_block_list));
+		counters_pool[i]->memory_block.count = 0;
+		counters_pool[i]->memory_block.mem  = malloc(INITIAL_RECORDS_PER_THREAD*sizeof(struct nodo));
+		counters_pool[i]->memory_block.size = INITIAL_RECORDS_PER_THREAD;
+		syncs_states_pool[i] = malloc(sizeof(struct memory_block_list));
+		syncs_states_pool[i]->memory_block.count = 0;
+		syncs_states_pool[i]->memory_block.mem  = malloc(INITIAL_PORTS_POOL_SIZE*sizeof(struct sync_status_node));
+		syncs_states_pool[i]->memory_block.size = INITIAL_PORTS_POOL_SIZE;
     pthread_create(&pd_thread[i], NULL, packet_consumer_thread, (void*)i);
   }
 
